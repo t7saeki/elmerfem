@@ -3951,6 +3951,15 @@ SUBROUTINE PermafrostPorosityEvolution( Model, Solver, Timestep, TransientSimula
            (1.0_dp + PrevStrainInvariant(StrainPerm(CurrentNode)))/(1.0_dp + StrainInvariant)
       PorosityValues(PorosityPerm(CurrentNode)) = &
            PorosityVariable % PrevValues(PorosityPerm(CurrentNode),1)*(1.0_dp - aux) + aux
+      IF (PorosityValues(PorosityPerm(CurrentNode)) <= 0.0) THEN
+        WRITE(Message,*) "Reset Invalid value: ",&
+             PorosityValues(PorosityPerm(CurrentNode)),&
+             "=", PorosityVariable % PrevValues(PorosityPerm(CurrentNode),1),&
+             "*", (1.0_dp - aux), "+", aux
+        !CALL FATAL(SolverName, Message)
+        CALL WARN(SolverName, Message)
+        PorosityValues(PorosityPerm(CurrentNode)) = 1.0d-08 !!!!! REPLACE 
+      END IF
       IF (PorosityValues(PorosityPerm(CurrentNode)) .NE. PorosityValues(PorosityPerm(CurrentNode))) THEN
         PRINT *,"PermafrostPorosityEvolution: ","Found weird number for PorosityValues"
         PRINT *,"PermafrostPorosityEvolution: PorosityValues(",PorosityPerm(CurrentNode),")=",&
@@ -5220,7 +5229,7 @@ FUNCTION GetEG(Model,DummyIPNo,ArgumentsAtIP) RESULT(EGAtIP)
   !EGAtIP = 5.0d06
   EGAtIP = EG(CurrentSolventMaterial,CurrentRockMaterial,RockMaterialID,XiAtIP,PorosityAtIP)
   !EGAtIP = EG(CurrentSolventMaterial,CurrentRockMaterial,RockMaterialID,1.0_dp,PorosityAtIP)
-  IF ((EGAtIP < 1.0d05) .OR. (EGAtIP > 1.0d07)) PRINT *,"GetEG",EGAtIP,XiAtIP,PorosityAtIP
+  !IF ((EGAtIP < 1.0d05) .OR. (EGAtIP > 1.0d07)) PRINT *,"GetEG",EGAtIP,XiAtIP,PorosityAtIP
 END FUNCTION GetEG
 !---------------------------------------------------------------------------------------------
 FUNCTION GetElasticityForce(Model,IPNo,ArgumentsAtIP) RESULT(EforceAtIP) ! needs arguments Temperature, Pressure, Porosity, Salinity
