@@ -37,7 +37,7 @@
 !-----------------------------------------------------------------------------
 !> Solver for groundwater flow of the enhanced permafrost model
 !    (i.e. Darcy Flow representing saturated aquifer)
-SUBROUTINE PermafrostGroundwaterFlow_init( Model,Solver,dt,TransientSimulation )
+SUBROUTINE PermafrostGroundwaterFlow_Init( Model,Solver,dt,TransientSimulation )
   USE DefUtils
   IMPLICIT NONE
 
@@ -66,14 +66,15 @@ SUBROUTINE PermafrostGroundwaterFlow_init( Model,Solver,dt,TransientSimulation )
   
   OffsetPressure = GetLogical(Model % Constants,'Permafrost Offset Pressure', Found)
   IF (.NOT.Found) OffsetPressure = .FALSE.
-  IF (OffsetPressure) THEN
-    ReferenceVar => VariableGet( Solver % Mesh % Variables, 'Reference Groundwater Density' )
-    IF (.NOT.ASSOCIATED( ReferenceVar )) THEN
-      CALL ListAddString( SolverParams,NextFreeKeyword('Exported Variable ',SolverParams), &
-            '-IP -dofs 1 "Reference Groundwater Density"' )
-    END IF
-  END IF
-END SUBROUTINE PermafrostGroundwaterFlow_init
+  !IF (OffsetPressure) THEN
+  !  ReferenceVar => VariableGet( Solver % Mesh % Variables, 'Reference Groundwater Density' )
+  !  IF (.NOT.ASSOCIATED( ReferenceVar )) THEN
+  !    CALL ListAddString( SolverParams,NextFreeKeyword('Exported Variable ',SolverParams), &
+  !         '-IP -dofs 1 "Reference Groundwater Density"' )
+  !    CALL INFO(SolverName,'Added "Reference Groundwater Density" to list of variables',Level=1)
+  !  END IF
+  !END IF
+END SUBROUTINE PermafrostGroundwaterFlow_Init
 !------------------------------------------------------------------------------
 SUBROUTINE PermafrostGroundwaterFlow( Model,Solver,dt,TransientSimulation )
   !------------------------------------------------------------------------------
@@ -151,6 +152,7 @@ SUBROUTINE PermafrostGroundwaterFlow( Model,Solver,dt,TransientSimulation )
   ComputeDt = GetLogical(Params,'Compute Time Derivatives',Found)
   FluxOutput = GetLogical(Params,'Groundwater Flux Output',Found)
 
+  
   ! find variables for dependencies
   !--------------------------------
 
@@ -177,7 +179,9 @@ SUBROUTINE PermafrostGroundwaterFlow( Model,Solver,dt,TransientSimulation )
   !PRINT *,"ComputeDeformation", ComputeDeformation, "StressInvName: ", TRIM(StressInvName)
   IF (FirstTime) THEN
     OffsetPressure = GetLogical(Model % Constants,'Permafrost Offset Pressure', Found)
-    IF (.NOT.Found) OffsetPressure = .FALSE.
+    IF (.NOT.Found) THEN
+      OffsetPressure = .FALSE.
+    END IF
   END IF
   
   IF (ComputeDeformation) THEN
@@ -300,8 +304,9 @@ SUBROUTINE PermafrostGroundwaterFlow( Model,Solver,dt,TransientSimulation )
            NodalPorosity, NodalSalinity, NodalTemperatureDt,NodalDummyDt,NodalSalinityDt, &
            CurrentRockMaterial,CurrentSoluteMaterial,CurrentSolventMaterial,&
            PhaseChangeModel,ElementWiseRockMaterial, ActiveMassMatrix, &
-           NodalStressInv,NodalStressInvDt,NoSalinity,ComputeDt,ComputeDeformation,HydroGeo)
+           NodalStressInv,NodalStressInvDt,NoSalinity,ComputeDt,ComputeDeformation,HydroGeo, OffsetPressure)
     END DO
+    OffsetPressure = .FALSE. ! sure to not read after first time
     CALL DefaultFinishBulkAssembly()
     Active = GetNOFBoundaryElements()
     DO t=1,Active
@@ -336,7 +341,7 @@ CONTAINS
        NodalPorosity, NodalSalinity, NodalTemperatureDt,NodalPressureDt,NodalSalinityDt,&
        CurrentRockMaterial, CurrentSoluteMaterial,CurrentSolventMaterial,&
        PhaseChangeModel, ElementWiseRockMaterial, ActiveMassMatrix,&
-       NodalStressInv,NodalStressInvDt,NoSalinity,ComputeDt,ComputeDeformation,HydroGeo )
+       NodalStressInv,NodalStressInvDt,NoSalinity,ComputeDt,ComputeDeformation,HydroGeo,OffsetPressure)
     IMPLICIT NONE
     !------------------------------------------------------------------------------
     TYPE(Model_t) :: Model
@@ -349,7 +354,7 @@ CONTAINS
          NodalPorosity(:), NodalPressure(:),&
          NodalTemperatureDt(:),NodalPressureDt(:),NodalSalinityDt(:),&
          NodalStressinv(:),NodalStressInvDt(:)
-    LOGICAL :: ElementWiseRockMaterial, ActiveMassMatrix,ComputeDt,ComputeDeformation,NoSalinity,HydroGeo
+    LOGICAL :: ElementWiseRockMaterial, ActiveMassMatrix,ComputeDt,ComputeDeformation,NoSalinity,HydroGeo,OffsetPressure
     CHARACTER(LEN=MAX_NAME_LEN) :: PhaseChangeModel
     !------------------------------------------------------------------------------
     REAL(KIND=dp) :: CgwppAtIP,CgwpTAtIP,CgwpYcAtIP,CgwpI1AtIP,KgwAtIP(3,3),KgwppAtIP(3,3),KgwpTAtIP(3,3),&
@@ -377,7 +382,7 @@ CONTAINS
     REAL(KIND=dp) :: MASS(nd,nd), STIFF(nd,nd), FORCE(nd), LOAD(n)
     REAL(KIND=dp) , POINTER :: gWork(:,:)
     !REAL(KIND=dp) , ALLOCATABLE :: CgwpI1AtNodes(:)
-    INTEGER :: i,t,p,q,DIM, RockMaterialID, FluxDOFs,IPPerm
+    INTEGER :: i,t,p,q,DIM, RockMaterialID, FluxDOFs,IPPerm,IPPermRhogw
     LOGICAL :: Stat,Found, ConstantsRead=.FALSE., ConstVal=.FALSE., ConstantDispersion=.FALSE.,&
          CryogenicSuction=.FALSE.
     TYPE(GaussIntegrationPoints_t) :: IP
@@ -385,9 +390,9 @@ CONTAINS
     TYPE(Nodes_t) :: Nodes
     CHARACTER(LEN=MAX_NAME_LEN), PARAMETER :: SolverName='PermafrostGroundWaterFlow', &
          FunctionName='Permafrost (LocalMatrixDarcy)'
-    TYPE(Variable_t), POINTER :: XiAtIPVar
-    INTEGER, POINTER :: XiAtIPPerm(:)
-    REAL(KIND=dp), POINTER :: XiAtIP(:)
+    TYPE(Variable_t), POINTER :: XiAtIPVar, IniRhogwAtIPVar
+    INTEGER, POINTER :: XiAtIPPerm(:), IniRhogwAtIPPerm(:)
+    REAL(KIND=dp), POINTER :: XiAtIP(:), IniRhogwAtIP(:)
     
     SAVE Nodes, ConstantsRead, ConstVal, DIM, GasConstant, N0, DeltaT, T0, p0, eps, Gravity
     !------------------------------------------------------------------------------
@@ -453,7 +458,8 @@ CONTAINS
     !-----------------------
     IP = GaussPoints( Element )
     DO t=1,IP % n
-      IPPerm = XiAtIPPerm(t) + t
+      IPPerm = XiAtIPPerm(ElementID) + t
+      
       ! Basis function values & derivatives at the integration point:
       !--------------------------------------------------------------
       stat = ElementInfo( Element, Nodes, IP % U(t), IP % V(t), &
@@ -566,10 +572,22 @@ CONTAINS
         rhogwYcAtIP = 0.0_dp      
       END IF
       rhogwAtIP = rhogw(rhowAtIP,rhocAtIP,XiAtIP(IPPerm),SalinityAtIP)
+      IF (OffsetPressure) THEN
+        IniRhogwAtIPVar => VariableGet( Model % Mesh % Variables, 'Reference Groundwater Density')
+        IF (.NOT.ASSOCIATED(IniRhogwAtIPVar)) THEN
+          WRITE(Message,*) '"Permafrost Offset Pressure" is set, but variable "Reference Groundwater Density" is not associated'
+          CALL FATAL(SolverName,Message)
+        END IF
+        IniRhogwAtIPPerm => IniRhogwAtIPVar % Perm  
+        IniRhogwAtIP => IniRhogwAtIPVar % Values
+        IPPermRhogw = IniRhogwAtIPPerm(ElementID) + t
+        IniRhogwAtIP(IPPermRhoGW) = rhogwAtIP
+      END IF
+      
       rhogwpAtIP = rhogwP(rhowPAtIP,rhocPAtIP,XiAtIP(IPPerm),SalinityAtIP)
       rhogwTAtIP = rhogwT(rhowTAtIP,rhocTAtIP,XiAtIP(IPPerm),SalinityAtIP)
 
-      IF ((rhowAtIP < 980.0_dp) .OR. (rhogwAtIP > 1250.0_dp)) THEN ! sanity check
+      IF ((rhogwAtIP < 980.0_dp) .OR. (rhogwAtIP > 1250.0_dp)) THEN ! sanity check
         PRINT *,"rhowAtIP:",rhowAtIP,XiAtIP(IPPerm),SalinityAtIP
         STOP
       END IF
@@ -5383,8 +5401,8 @@ FUNCTION GetElasticityForce(Model,IPNo,ArgumentsAtIP) RESULT(EforceAtIP) ! needs
   END IF
   
   !EforceAtIP = -rhoGAtIP * SQRT(SUM(Gravity(1:3)*Gravity(1:3)))
-  EforceAtIP = (rhoGAtIP - initialrhogwATIP)* Gravity(DIM)
-  !IF (t==100 )PRINT *, "GetElasticityForce: EforceAtIP=", EforceAtIP, rhosAtIP,rhogwAtIP,rhoiAtIP,&
+  !EforceAtIP = (rhoGAtIP - initialrhogwATIP)* Gravity(DIM)
+  IF (t==100 )PRINT *, "GetElasticityForce: EforceAtIP=", EforceAtIP, "=(",rhoGAtIP, "-", initialrhogwATIP,")*", Gravity(DIM)
   !     PorosityAtIP,SalinityAtIP,XiAtIP, "   *********"  
 END FUNCTION GetElasticityForce
 
