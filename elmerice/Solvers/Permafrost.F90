@@ -50,7 +50,7 @@ SUBROUTINE PermafrostGroundwaterFlow_Init( Model,Solver,dt,TransientSimulation )
   CHARACTER(LEN=MAX_NAME_LEN), PARAMETER :: SolverName='PermafrostGroundwaterFlow_init'
   TYPE(Variable_t), POINTER :: ReferenceVar
   
-  LOGICAL :: OffsetPressure = .FALSE. , Found
+  LOGICAL :: OffsetDensity = .FALSE. , Found
   !------------------------------------------------------------------------------
 
   CALL Info( SolverName, '-------------------------------------------',Level=1 )
@@ -64,14 +64,14 @@ SUBROUTINE PermafrostGroundwaterFlow_Init( Model,Solver,dt,TransientSimulation )
     CALL WARN( SolverName, 'Variable not found. Adding default "GWPressure"')
   END IF
   
-  OffsetPressure = GetLogical(Model % Constants,'Permafrost Offset Pressure', Found)
-  IF (.NOT.Found) OffsetPressure = .FALSE.
-  !IF (OffsetPressure) THEN
-  !  ReferenceVar => VariableGet( Solver % Mesh % Variables, 'Reference Groundwater Density' )
+  OffsetDensity = GetLogical(Model % Constants,'Permafrost Offset Density', Found)
+  IF (.NOT.Found) OffsetDensity = .FALSE.
+  !IF (OffsetDensity) THEN
+  !  ReferenceVar => VariableGet( Solver % Mesh % Variables, 'Reference Offset Density' )
   !  IF (.NOT.ASSOCIATED( ReferenceVar )) THEN
   !    CALL ListAddString( SolverParams,NextFreeKeyword('Exported Variable ',SolverParams), &
-  !         '-IP -dofs 1 "Reference Groundwater Density"' )
-  !    CALL INFO(SolverName,'Added "Reference Groundwater Density" to list of variables',Level=1)
+  !         '-dofs 1 -IP "Reference Offset Density"' )
+  !    CALL INFO(SolverName,'Added "Reference Offset Density" to list of variables',Level=1)
   !  END IF
   !END IF
 END SUBROUTINE PermafrostGroundwaterFlow_Init
@@ -116,7 +116,7 @@ SUBROUTINE PermafrostGroundwaterFlow( Model,Solver,dt,TransientSimulation )
        InitializeSteadyState, ActiveMassMatrix, ComputeDeformation=.FALSE.,DeformationExists=.FALSE.,&
        StressInvAllocationsDone=.FALSE.,StressInvDtAllocationsDone=.FALSE.,&
        HydroGeo=.FALSE.,ComputeDt=.FALSE.,&
-       TemperatureTimeDerExists=.FALSE.,SalinityTimeDerExists=.FALSE., FluxOutput=.FALSE., OffsetPressure=.FALSE.
+       TemperatureTimeDerExists=.FALSE.,SalinityTimeDerExists=.FALSE., FluxOutput=.FALSE., OffsetDensity=.FALSE.
   CHARACTER(LEN=MAX_NAME_LEN), ALLOCATABLE :: VariableBaseName(:)
   CHARACTER(LEN=MAX_NAME_LEN), PARAMETER :: SolverName='PermafrostGroundWaterFlow'
   CHARACTER(LEN=MAX_NAME_LEN) :: TemperatureName, PorosityName, SalinityName, StressInvName, &
@@ -126,7 +126,7 @@ SUBROUTINE PermafrostGroundwaterFlow( Model,Solver,dt,TransientSimulation )
        NodalPorosity,NodalTemperature,NodalSalinity,NodalPressure,NodalStressInv, &
        NodalStressInvDt,NodalTemperatureDt,NodalDummyDt,NodalSalinityDt, &
        DummyNodalGWflux, ElementWiseRockMaterial, ComputeDeformation, &
-       StressInvAllocationsDone, StressInvDtAllocationsDone, OffsetPressure
+       StressInvAllocationsDone, StressInvDtAllocationsDone, OffsetDensity
   !------------------------------------------------------------------------------
   CALL DefaultStart()
 
@@ -178,9 +178,9 @@ SUBROUTINE PermafrostGroundwaterFlow( Model,Solver,dt,TransientSimulation )
   DeformationName = ListGetString(params,'Ground Deformation Variable Name ',DeformationExists)
   !PRINT *,"ComputeDeformation", ComputeDeformation, "StressInvName: ", TRIM(StressInvName)
   IF (FirstTime) THEN
-    OffsetPressure = GetLogical(Model % Constants,'Permafrost Offset Pressure', Found)
+    OffsetDensity = GetLogical(Model % Constants,'Permafrost Offset Density', Found)
     IF (.NOT.Found) THEN
-      OffsetPressure = .FALSE.
+      OffsetDensity = .FALSE.
     END IF
   END IF
   
@@ -304,9 +304,9 @@ SUBROUTINE PermafrostGroundwaterFlow( Model,Solver,dt,TransientSimulation )
            NodalPorosity, NodalSalinity, NodalTemperatureDt,NodalDummyDt,NodalSalinityDt, &
            CurrentRockMaterial,CurrentSoluteMaterial,CurrentSolventMaterial,&
            PhaseChangeModel,ElementWiseRockMaterial, ActiveMassMatrix, &
-           NodalStressInv,NodalStressInvDt,NoSalinity,ComputeDt,ComputeDeformation,HydroGeo, OffsetPressure)
+           NodalStressInv,NodalStressInvDt,NoSalinity,ComputeDt,ComputeDeformation,HydroGeo, OffsetDensity)
     END DO
-    OffsetPressure = .FALSE. ! sure to not read after first time
+    OffsetDensity = .FALSE. ! sure to not read after first time
     CALL DefaultFinishBulkAssembly()
     Active = GetNOFBoundaryElements()
     DO t=1,Active
@@ -341,7 +341,7 @@ CONTAINS
        NodalPorosity, NodalSalinity, NodalTemperatureDt,NodalPressureDt,NodalSalinityDt,&
        CurrentRockMaterial, CurrentSoluteMaterial,CurrentSolventMaterial,&
        PhaseChangeModel, ElementWiseRockMaterial, ActiveMassMatrix,&
-       NodalStressInv,NodalStressInvDt,NoSalinity,ComputeDt,ComputeDeformation,HydroGeo,OffsetPressure)
+       NodalStressInv,NodalStressInvDt,NoSalinity,ComputeDt,ComputeDeformation,HydroGeo,OffsetDensity)
     IMPLICIT NONE
     !------------------------------------------------------------------------------
     TYPE(Model_t) :: Model
@@ -354,7 +354,7 @@ CONTAINS
          NodalPorosity(:), NodalPressure(:),&
          NodalTemperatureDt(:),NodalPressureDt(:),NodalSalinityDt(:),&
          NodalStressinv(:),NodalStressInvDt(:)
-    LOGICAL :: ElementWiseRockMaterial, ActiveMassMatrix,ComputeDt,ComputeDeformation,NoSalinity,HydroGeo,OffsetPressure
+    LOGICAL :: ElementWiseRockMaterial, ActiveMassMatrix,ComputeDt,ComputeDeformation,NoSalinity,HydroGeo,OffsetDensity
     CHARACTER(LEN=MAX_NAME_LEN) :: PhaseChangeModel
     !------------------------------------------------------------------------------
     REAL(KIND=dp) :: CgwppAtIP,CgwpTAtIP,CgwpYcAtIP,CgwpI1AtIP,KgwAtIP(3,3),KgwppAtIP(3,3),KgwpTAtIP(3,3),&
@@ -375,7 +375,7 @@ CONTAINS
          rhowTAtIP,rhowPAtIP,rhowYcAtIP,&
          rhoiPAtIP,rhoiTAtIP,&
          rhocPAtIP,rhocTAtIP,rhocYcAtIP,&
-         rhogwPAtIP,rhogwTAtIP,rhogwYcAtIP
+         rhogwPAtIP,rhogwTAtIP,rhogwYcAtIP, rhoGAtIP
     REAL(KIND=dp) :: Basis(nd),dBasisdx(nd,3),DetJ,Weight,LoadAtIP,StiffPQ
     REAL(KIND=dp) :: TemperatureAtIP,PorosityAtIP,KPorosityAtIP,SalinityAtIP,PressureAtIP
     REAL(KIND=dp) :: TemperatureDtAtIP,SalinityDtAtIP,PressureDtAtIP
@@ -390,9 +390,9 @@ CONTAINS
     TYPE(Nodes_t) :: Nodes
     CHARACTER(LEN=MAX_NAME_LEN), PARAMETER :: SolverName='PermafrostGroundWaterFlow', &
          FunctionName='Permafrost (LocalMatrixDarcy)'
-    TYPE(Variable_t), POINTER :: XiAtIPVar, IniRhogwAtIPVar
-    INTEGER, POINTER :: XiAtIPPerm(:), IniRhogwAtIPPerm(:)
-    REAL(KIND=dp), POINTER :: XiAtIP(:), IniRhogwAtIP(:)
+    TYPE(Variable_t), POINTER :: XiAtIPVar, RhoOffsetAtIPVar
+    INTEGER, POINTER :: XiAtIPPerm(:), RhoOffsetAtIPPerm(:)
+    REAL(KIND=dp), POINTER :: XiAtIP(:), RhoOffsetAtIP(:)
     
     SAVE Nodes, ConstantsRead, ConstVal, DIM, GasConstant, N0, DeltaT, T0, p0, eps, Gravity
     !------------------------------------------------------------------------------
@@ -572,16 +572,21 @@ CONTAINS
         rhogwYcAtIP = 0.0_dp      
       END IF
       rhogwAtIP = rhogw(rhowAtIP,rhocAtIP,XiAtIP(IPPerm),SalinityAtIP)
-      IF (OffsetPressure) THEN
-        IniRhogwAtIPVar => VariableGet( Model % Mesh % Variables, 'Reference Groundwater Density')
-        IF (.NOT.ASSOCIATED(IniRhogwAtIPVar)) THEN
-          WRITE(Message,*) '"Permafrost Offset Pressure" is set, but variable "Reference Groundwater Density" is not associated'
+      IF (OffsetDensity) THEN
+        RhoOffsetAtIPVar => VariableGet( Model % Mesh % Variables, 'Reference Offset Density')
+        IF (.NOT.ASSOCIATED(RhoOffsetAtIPVar)) THEN
+          WRITE(Message,*) '"Permafrost Offset Density" is set, but variable "Reference Offset Density" is not associated'
           CALL FATAL(SolverName,Message)
         END IF
-        IniRhogwAtIPPerm => IniRhogwAtIPVar % Perm  
-        IniRhogwAtIP => IniRhogwAtIPVar % Values
-        IPPermRhogw = IniRhogwAtIPPerm(ElementID) + t
-        IniRhogwAtIP(IPPermRhoGW) = rhogwAtIP
+        RhoOffsetAtIPPerm => RhoOffsetAtIPVar % Perm  
+        RhoOffsetAtIP => RhoOffsetAtIPVar % Values
+        IPPermRhogw = RhoOffsetAtIPPerm(ElementID) + t
+        rhoGAtIP = rhoG(rhosAtIP,rhogwAtIP,rhoiAtIP,PorosityAtIP,SalinityAtIP,XiAtIP(IPPerm))
+        IF (rhoGAtIP .NE. rhoGAtIP) THEN
+          PRINT *,rhosAtIP,rhogwAtIP,rhoiAtIP,PorosityAtIP,SalinityAtIP,XiAtIP
+          CALL FATAL(FunctionName,'rhoGAtIP is NaN')
+        END IF
+        RhoOffsetAtIP(IPPermRhoGW) = rhoGAtIP - rhogwAtIP
       END IF
       
       rhogwpAtIP = rhogwP(rhowPAtIP,rhocPAtIP,XiAtIP(IPPerm),SalinityAtIP)
@@ -5281,10 +5286,10 @@ FUNCTION GetElasticityForce(Model,IPNo,ArgumentsAtIP) RESULT(EforceAtIP) ! needs
   !--------------
   REAL(KIND=dp) :: TemperatureAtIP, PressureAtIP, PorosityAtIP, SalinityAtIP,XiAtIP,&
        rhogwAtIP, rhosAtIP, rhowAtIP,rhocAtIP, rhoiAtIP,rhoGAtIP,&
-       GasConstant, N0, DeltaT, T0, p0, eps, Gravity(3),initialrhogwATIP
-  TYPE(Variable_t), POINTER :: IniRhogwAtIPVar
-  INTEGER, POINTER :: IniRhogwAtIPPerm(:)
-  REAL(KIND=dp), POINTER :: IniRhogwAtIP(:)
+       GasConstant, N0, DeltaT, T0, p0, eps, Gravity(3),InitialOffsetRhoAtIP
+  TYPE(Variable_t), POINTER :: RhoOffsetAtIPVar
+  INTEGER, POINTER :: RhoOffsetAtIPPerm(:)
+  REAL(KIND=dp), POINTER :: RhoOffsetAtIP(:)
   !TYPE(Variable_t), POINTER :: XiAtIPVar
   !INTEGER, POINTER :: XiAtIPPerm(:)
   !REAL(KIND=dp), POINTER :: XiAtIP(:)
@@ -5299,19 +5304,19 @@ FUNCTION GetElasticityForce(Model,IPNo,ArgumentsAtIP) RESULT(EforceAtIP) ! needs
   CHARACTER(LEN=MAX_NAME_LEN), PARAMETER :: FunctionName = 'Permafrost (GetElasticityForce)'
   CHARACTER(LEN=MAX_NAME_LEN) :: ElementRockMaterialName
   LOGICAL :: Found,FirstTime=.TRUE.,ConstVal=.FALSE., ConstantsRead = .FALSE.,&
-       ElementWiseRockMaterial, OffsetPressure=.FALSE.
+       ElementWiseRockMaterial, OffsetDensity=.FALSE.
 
   SAVE ConstantsRead,ElementWiseRockMaterial,GasConstant, DIM, N0, DeltaT, T0, p0, eps, Gravity,&
        NumberOfRockRecords,FirstTime,CurrentRockMaterial,CurrentSoluteMaterial,CurrentSolventMaterial,&
-       OffsetPressure
+       OffsetDensity
 
   
   IF (.NOT.ConstantsRead) THEN
     ConstantsRead = &
          ReadPermafrostConstants(Model, FunctionName, DIM, GasConstant, N0, DeltaT, T0, p0, eps, Gravity)
-    OffsetPressure = GetLogical(Model %Constants,'Permafrost Offset Pressure', Found)
+    OffsetDensity = GetLogical(Model %Constants,'Permafrost Offset Density', Found)
     IF (.NOT.Found) THEN
-      OffsetPressure = .FALSE.
+      OffsetDensity = .FALSE.
       CALL WARN(FunctionName,'No offset for groundwater pressure included - might lead to artifial high compression')
     ELSE
       CALL INFO(FunctionName,'Offset groundwater pressure is activated',Level=1)
@@ -5320,18 +5325,18 @@ FUNCTION GetElasticityForce(Model,IPNo,ArgumentsAtIP) RESULT(EforceAtIP) ! needs
   Element => Model % CurrentElement
   t = Element % ElementIndex
   IF (.NOT.ASSOCIATED(Element)) CALL FATAL(FunctionName,'Element not associated')
-  IF (OffsetPressure) THEN
-    IniRhogwAtIPVar => VariableGet( Model % Mesh % Variables, 'Reference Groundwater Density')
-    IF (.NOT.ASSOCIATED(IniRhogwAtIPVar)) THEN
-      WRITE(Message,*) '"Permafrost Offset Pressure" is set, but variable "Reference Groundwater Density" is not associated'
+  IF (OffsetDensity) THEN
+    RhoOffsetAtIPVar => VariableGet( Model % Mesh % Variables, 'Reference Offset Density')
+    IF (.NOT.ASSOCIATED(RhoOffsetAtIPVar)) THEN
+      WRITE(Message,*) '"Permafrost Offset Density" is set, but variable "Reference Offset Density" is not associated'
       CALL FATAL(FunctionName,Message)
     END IF
-    IniRhogwAtIPPerm => IniRhogwAtIPVar % Perm
-    IPPerm = IniRhogwAtIPPerm(t) + IPNo  
-    IniRhogwAtIP => IniRhogwAtIPVar % Values
-    initialrhogwATIP = IniRhogwAtIP(IPPerm)
+    RhoOffsetAtIPPerm => RhoOffsetAtIPVar % Perm
+    IPPerm = RhoOffsetAtIPPerm(t) + IPNo  
+    RhoOffsetAtIP => RhoOffsetAtIPVar % Values
+    InitialOffsetRhoAtIP = RhoOffsetAtIP(IPPerm)
   ELSE
-    initialrhogwATIP = 0.0_dp
+    InitialOffsetRhoAtIP = 0.0_dp
   END IF
 
   Material => GetMaterial(Element)
@@ -5401,8 +5406,8 @@ FUNCTION GetElasticityForce(Model,IPNo,ArgumentsAtIP) RESULT(EforceAtIP) ! needs
   END IF
   
   !EforceAtIP = -rhoGAtIP * SQRT(SUM(Gravity(1:3)*Gravity(1:3)))
-  !EforceAtIP = (rhoGAtIP - initialrhogwATIP)* Gravity(DIM)
-  IF (t==100 )PRINT *, "GetElasticityForce: EforceAtIP=", EforceAtIP, "=(",rhoGAtIP, "-", initialrhogwATIP,")*", Gravity(DIM)
+  EforceAtIP = (rhoGAtIP - InitialOffsetRhoAtIP)* Gravity(DIM)
+  !IF (t==100 )PRINT *, "GetElasticityForce: EforceAtIP=", EforceAtIP, "=(",rhoGAtIP, "-", InitialOffsetRhoAtIP,")*", Gravity(DIM)
   !     PorosityAtIP,SalinityAtIP,XiAtIP, "   *********"  
 END FUNCTION GetElasticityForce
 
