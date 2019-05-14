@@ -43,83 +43,73 @@ MODULE IceProperties
   CONTAINS
 
   !==============================================================================
-  FUNCTION IceConductivity(Model, temp) RESULT(cond)
+  FUNCTION GetIceConductivity(temp) RESULT(cond)
   !==============================================================================
 
-    USE DefUtils
 
     IMPLICIT None
-
-    TYPE(Model_t) :: Model
     REAL(KIND=dp) :: temp, cond
 
-    cond = 9.828*exp(-5.7E-03*temp)
+    
+    
+    cond = 9.828_dp*exp(-5.7d-03*temp)
 
-  END FUNCTION IceConductivity
+  END FUNCTION GetIceConductivity
   
   !==============================================================================
-  FUNCTION IceCapacity(Model, temp) RESULT(capac)
+  FUNCTION GetIceCapacity(temp) RESULT(capac)
   !==============================================================================
 
     USE DefUtils
 
     IMPLICIT None
 
-    TYPE(Model_t) :: Model
     REAL(KIND=dp) :: temp, capac
 
 
 
     capac = 146.3_dp + (7.253_dp * temp)
-  END FUNCTION IceCapacity
+  END FUNCTION GetIceCapacity
   
   !==============================================================================
-  FUNCTION IcePressureMeltingPoint(Model, ClausiusClapeyron, press) RESULT(Tpmp)
+  FUNCTION GetIcePressureMeltingPoint(ClausiusClapeyron, press) RESULT(Tpmp)
   !==============================================================================
 
     USE DefUtils
     
     IMPLICIT None
 
-    TYPE(Model_t) :: Model
     REAL(KIND=dp) :: Tpmp, ClausiusClapeyron, press
 
-    Tpmp = 273.15 - ClausiusClapeyron*MAX(press, 0.0_dp)
+    Tpmp = 273.15_dp - ClausiusClapeyron*MAX(press, 0.0_dp)
 
-  END FUNCTION IcePressureMeltingPoint
+  END FUNCTION GetIcePressureMeltingPoint
 
 END MODULE IceProperties
 
 !==============================================================================
-FUNCTION IceConductivity_SI(Model, Node, temp) RESULT(cond)
+FUNCTION IceConductivity(Model, Node, temp) RESULT(cond)
 !==============================================================================
   USE IceProperties
   
   TYPE(Model_t) :: Model
   INTEGER :: Node
   REAL(KIND=dp) :: temp, cond
+
+  REAL(KIND=dp) :: scalingfactor
+  TYPE(Element_t), POINTER :: Element
+  TYPE(ValueList_t), POINTER  :: Material
+  LOGICAL :: Found
   
-  cond = IceConductivity(Model, temp)
-  
-END FUNCTION IceConductivity_SI
-!==============================================================================
-FUNCTION IceConductivity_m_Mpa_a(Model, Node, temp) RESULT(cond)
-!==============================================================================
-
-  USE IceProperties
-
-  IMPLICIT None
-
-  TYPE(Model_t) :: Model
-  INTEGER :: Node
-  REAL(KIND=dp) :: temp, cond
-
-  cond = IceConductivity(Model,temp) * 31557600.0_dp * 1.0d-06 ! From SI to m-MPa-a
-
-END FUNCTION IceConductivity_m_MPa_a
+  Element => Model % CurrentElement
+  Material => GetMaterial(Element)
+  scalingfactor = GetConstReal(Material,"Heat Conductivity Scaling Factor",Found)
+  IF (.NOT.Found) scalingfactor = 1.0_dp
+  cond = scalingfactor * GetIceConductivity(temp)
+END FUNCTION IceConductivity
 
 !==============================================================================
-FUNCTION IceCapacity_SI(Model, Node, temp) RESULT(capac)
+FUNCTION IceCapacity(Model, Node, temp) RESULT(capac)
 !==============================================================================
   USE IceProperties
 
@@ -129,28 +119,20 @@ FUNCTION IceCapacity_SI(Model, Node, temp) RESULT(capac)
   INTEGER :: Node
   REAL(KIND=dp) :: temp, capac
 
-  capac = IceCapacity(Model,temp)
-
-END FUNCTION IceCapacity_SI
-
-!==============================================================================
-FUNCTION IceCapacity_m_MPa_a(Model, Node, temp) RESULT(capac)
-!==============================================================================
-
-  USE IceProperties
-
-  IMPLICIT None
-
-  TYPE(Model_t) :: Model
-  INTEGER :: Node
-  REAL(KIND=dp) :: temp, capac
-
-  capac = IceCapacity(Model,temp) * (31557600.0_dp**2.0_dp)
-
-END FUNCTION IceCapacity_m_Mpa_a
+  REAL(KIND=dp) :: scalingfactor
+  TYPE(Element_t), POINTER :: Element
+  TYPE(ValueList_t), POINTER  :: Material
+  LOGICAL :: Found
+  
+  Element => Model % CurrentElement
+  Material => GetMaterial(Element)
+  scalingfactor = GetConstReal(Material,"Heat Capacity Scaling Factor",Found)
+  IF (.NOT.Found) scalingfactor = 1.0_dp
+  capac = scalingfactor * GetIceCapacity(temp)
+END FUNCTION IceCapacity
 
 !==============================================================================
-FUNCTION IcePressureMeltingPoint_K_SI(Model, Node, press) RESULT(Tpmp)
+FUNCTION IcePressureMeltingPoint(Model, Node, press) RESULT(Tpmp)
 !==============================================================================
 
   USE IceProperties
@@ -162,12 +144,25 @@ FUNCTION IcePressureMeltingPoint_K_SI(Model, Node, press) RESULT(Tpmp)
   REAL(KIND=dp) :: Tpmp, press
 
   INTEGER :: N
-  REAL(KIND=dp) :: ClausiusClapeyron
+  REAL(KIND=dp) :: ClausiusClapeyron, tmpoffset
   TYPE(ValueList_t), POINTER :: Constants
-  LOGICAL :: FirstTime = .TRUE., GotIt
-
+  LOGICAL :: FirstTime = .TRUE., GotIt, InCelsius
+  REAL(KIND=dp) :: scalingfactor
+  TYPE(Element_t), POINTER :: Element
+  TYPE(ValueList_t), POINTER  :: Material
+  
   SAVE FirstTime, ClausiusClapeyron
 
+  Element => Model % CurrentElement
+  Material => GetMaterial(Element)
+  scalingfactor = GetConstReal(Material,"Pressure Scaling Factor",GotIt)
+  IF (.NOT.GotIt) scalingfactor = 1.0_dp
+  InCelsius = GetLogical(Material, "Pressure Melting Point Celsius", GotIt)
+  IF (InCelsius) THEN
+    tmpoffset = 273.15_dp
+  ELSE
+    tmpoffset = 0.0_dp
+  END IF
   IF (FirstTime) THEN
     FirstTime = .FALSE.
     Constants => GetConstants()
@@ -179,42 +174,7 @@ FUNCTION IcePressureMeltingPoint_K_SI(Model, Node, press) RESULT(Tpmp)
       CALL INFO("IcePressureMeltingPoint","Setting to 9.8d-08 (SI units)",Level=9)
     END IF
   END IF
+  Tpmp = GetIcePressureMeltingPoint(ClausiusClapeyron,scalingfactor*press) + tmpoffset
 
-  Tpmp = IcePressureMeltingPoint(Model,ClausiusClapeyron,press)
+END FUNCTION IcePressureMeltingPoint
 
-END FUNCTION IcePressureMeltingPoint_K_SI
-!==============================================================================
-FUNCTION IcePressureMeltingPoint_C_SI(Model, Node, press) RESULT(Tpmp)
-!==============================================================================
-
-  USE IceProperties
-
-  IMPLICIT None
-
-  TYPE(Model_t) :: Model
-  INTEGER :: Node
-  REAL(KIND=dp) :: Tpmp, press
-
-  INTEGER :: N
-  REAL(KIND=dp) :: ClausiusClapeyron
-  TYPE(ValueList_t), POINTER :: Constants
-  LOGICAL :: FirstTime = .TRUE., GotIt
-
-  SAVE FirstTime, ClausiusClapeyron
-
-  IF (FirstTime) THEN
-    FirstTime = .FALSE.
-    Constants => GetConstants()
-    IF (.NOT.ASSOCIATED(Constants)) CALL FATAL("IcePressureMeltingPoint","No Constants associated.")
-    ClausiusClapeyron = GetConstReal( Constants, 'Clausius Clapeyron Constant', GotIt)
-    IF (.NOT.GotIt) THEN
-      ClausiusClapeyron = 9.8d-08
-      CALL INFO("IcePressureMeltingPoint","No entry found for >Clausius Clapeyron Constant<.",Level=9)
-      CALL INFO("IcePressureMeltingPoint","Setting to 9.8d-08 (SI units)",Level=9)
-    END IF
-  END IF
-
-  Tpmp = IcePressureMeltingPoint(Model,ClausiusClapeyron,press) - 273.15_dp
-
-END FUNCTION IcePressureMeltingPoint_C_SI
-!==============================================================================
