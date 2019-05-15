@@ -11259,7 +11259,7 @@ END SUBROUTINE GetMaxDefs
     IF(isParallel) THEN
       j=max_body
       CALL MPI_ALLREDUCE(j,max_body,1, &
-           MPI_INTEGER,MPI_MAX,MPI_COMM_WORLD,ierr)
+           MPI_INTEGER,MPI_MAX,ELMER_COMM_WORLD,ierr)
     END IF
     ! Generate volume bulk elements:
     ! ------------------------------
@@ -11482,7 +11482,7 @@ END SUBROUTINE GetMaxDefs
       IF(isParallel) THEN
         j=max_bid
         CALL MPI_ALLREDUCE(j,max_bid,1, &
-             MPI_INTEGER,MPI_MAX,MPI_COMM_WORLD,ierr)
+             MPI_INTEGER,MPI_MAX,ELMER_COMM_WORLD,ierr)
       END IF
       IF (blk==1) THEN
         max_bclayer=max_bid - max_baseline_bid

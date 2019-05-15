@@ -397,7 +397,7 @@ RECURSIVE SUBROUTINE TemperateIceSolver( Model,Solver,Timestep,TransientSimulati
      PointerToResidualVector => VarTempResidual % Values
   END IF
 
-
+  CALL DefaultStart()
   !------------------------------------------------------------------------------
   !       non-linear system iteration loop
   !------------------------------------------------------------------------------
