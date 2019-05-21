@@ -1831,7 +1831,7 @@ SUBROUTINE PermafrostHeatTransfer( Model,Solver,dt,TransientSimulation )
   CHARACTER(LEN=MAX_NAME_LEN), PARAMETER :: SolverName='PermafrostHeatEquation'
   CHARACTER(LEN=MAX_NAME_LEN) :: PressureName, PorosityName, SalinityName, GWfluxName, PhaseChangeModel,&
        ElementRockMaterialName,VarName, DepthName, XiAtIPName
-  TYPE(ValueHandle_t) :: Load_h
+  TYPE(ValueHandle_t) :: Load_h, Pressure_h, Salinity_h, Porosity_h
 
   SAVE DIM,FirstTime,AllocationsDone,GivenGWFlux,DepthName,XiAtIPName,&
        CurrentRockMaterial,CurrentSoluteMaterial,CurrentSolventMaterial,NumberOfRockRecords,&
@@ -1844,7 +1844,12 @@ SUBROUTINE PermafrostHeatTransfer( Model,Solver,dt,TransientSimulation )
   CALL Info( SolverName, '-------------------------------------',Level=1 )
 
   ! Handle to Heat Source (possible description of heat source at elements/IP's) 
-  CALL ListInitElementKeyword( Load_h,'Body Force','Heat Source')
+  CALL ListInitElementKeyword( Load_h,'Body Force','Heat Source' )
+
+  ! Handles to other variables
+  CALL ListInitElementKeyword( Pressure_h, 'Material', 'Pressure Variable' )
+  CALL ListInitElementKeyword( Salinity_h, 'Material', 'Salinity Variable' )
+  CALL ListInitElementKeyword( Porosity_h, 'Material', 'Porosity Variable' )  
 
   CALL DefaultStart()
 
@@ -1865,7 +1870,7 @@ SUBROUTINE PermafrostHeatTransfer( Model,Solver,dt,TransientSimulation )
        TemperatureDt, PressureDt, SalinityDt,&
        GWFlux1,GWFlux2,GWFlux3, &
        NoPressure, NoSalinity,ConstantPorosity,GivenGWFlux, DIM, ComputeDt, SolverName)
-
+  
   IF (FirstTime) THEN
     DepthName = ListGetString(Params,'Depth Variable Name', Found)
     IF (.NOT.Found) THEN
@@ -2133,9 +2138,15 @@ CONTAINS
 
       ! Variables (Temperature, Porosity, Pressure, Salinity) at IP
       TemperatureAtIP = SUM( Basis(1:N) * NodalTemperature(1:N) )
-      PorosityAtIP = SUM( Basis(1:N) * NodalPorosity(1:N))
-      PressureAtIP = SUM( Basis(1:N) * NodalPressure(1:N))      
-      SalinityAtIP = SUM( Basis(1:N) * NodalSalinity(1:N))
+            PorosityAtIP = ListGetElementReal( Porosity_h, Basis, Element, Found, GaussPoint=t)
+      IF (.NOT.Found) CALL FATAL(SolverName,'Porosity not found')
+      PressureAtIP = ListGetElementReal( Pressure_h, Basis, Element, Found, GaussPoint=t)
+      IF (.NOT.Found) CALL FATAL(SolverName,'Pressure not found')
+      SalinityAtIP = ListGetElementReal( Salinity_h, Basis, Element, Found, GaussPoint=t)
+      IF (.NOT.Found) CALL WARN(SolverName,'Salinity not found - setting to zero')
+      !PorosityAtIP = SUM( Basis(1:N) * NodalPorosity(1:N))
+      !PressureAtIP = SUM( Basis(1:N) * NodalPressure(1:N))      
+      !SalinityAtIP = SUM( Basis(1:N) * NodalSalinity(1:N))
 
       !Materialproperties needed for computing Xi at IP
 
@@ -5058,6 +5069,7 @@ CONTAINS
       PressureAtIP = SUM( Basis(1:N) * NodalPressure(1:N))      
       SalinityAtIP = SUM( Basis(1:N) * NodalSalinity(1:N))
 
+      
       !Materialproperties needed for computing Xi at IP
 
       rhowAtIP = rhow(CurrentSolventMaterial,T0,p0,TemperatureAtIP,PressureAtIP,ConstVal)
