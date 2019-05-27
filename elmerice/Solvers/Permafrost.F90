@@ -121,7 +121,8 @@ SUBROUTINE PermafrostGroundwaterFlow( Model,Solver,dt,TransientSimulation )
   CHARACTER(LEN=MAX_NAME_LEN), PARAMETER :: SolverName='PermafrostGroundWaterFlow'
   CHARACTER(LEN=MAX_NAME_LEN) :: TemperatureName, PorosityName, SalinityName, StressInvName, &
        VarName,PhaseChangeModel,ElementRockMaterialName,DeformationName
-
+  TYPE(ValueHandle_t) :: Load_h, Temperature_h, Pressure_h, Salinity_h, Porosity_h
+  
   SAVE DIM,FirstTime,AllocationsDone,CurrentRockMaterial,CurrentSoluteMaterial,CurrentSolventMaterial,&
        NodalPorosity,NodalTemperature,NodalSalinity,NodalPressure,NodalStressInv, &
        NodalStressInvDt,NodalTemperatureDt,NodalDummyDt,NodalSalinityDt, &
@@ -173,7 +174,13 @@ SUBROUTINE PermafrostGroundwaterFlow( Model,Solver,dt,TransientSimulation )
   Pressure => Solver % Variable % Values
   PressurePerm => Solver % Variable % Perm
   VarName = Solver % Variable % Name
+  ! Handles to all variables
+  CALL ListInitElementKeyword( Temperature_h, 'Material', 'Temperature Variable' )
+  CALL ListInitElementKeyword( Pressure_h, 'Material', 'Pressure Variable' )
+  CALL ListInitElementKeyword( Salinity_h, 'Material', 'Salinity Variable' )
+  CALL ListInitElementKeyword( Porosity_h, 'Material', 'Porosity Variable' )
 
+  
   StressInvName =  ListGetString(params,'Ground Stress Invariant Variable Name',ComputeDeformation)
   DeformationName = ListGetString(params,'Ground Deformation Variable Name ',DeformationExists)
   !PRINT *,"ComputeDeformation", ComputeDeformation, "StressInvName: ", TRIM(StressInvName)
@@ -472,10 +479,19 @@ CONTAINS
       Weight = IP % s(t) * DetJ
 
       ! Variables (Temperature, Porosity, Pressure, Salinity) at IP
-      TemperatureAtIP = SUM( Basis(1:N) * NodalTemperature(1:N) )
-      PorosityAtIP = SUM( Basis(1:N) * NodalPorosity(1:N) )
-      PressureAtIP = SUM( Basis(1:N) * NodalPressure(1:N) )
-      SalinityAtIP = SUM( Basis(1:N) * NodalSalinity(1:N) )
+      TemperatureAtIP = ListGetElementReal( Temperature_h, Basis, Element, Found, GaussPoint=t)
+      IF (.NOT.Found) CALL FATAL(SolverName,'Temperature not found')
+      PorosityAtIP = ListGetElementReal( Porosity_h, Basis, Element, Found, GaussPoint=t)
+      IF (.NOT.Found) CALL FATAL(SolverName,'Porosity not found')
+      PressureAtIP = ListGetElementReal( Pressure_h, Basis, Element, Found, GaussPoint=t)
+      IF (.NOT.Found) CALL FATAL(SolverName,'Pressure not found')
+      SalinityAtIP = 0.0_dp
+      SalinityAtIP = ListGetElementReal( Salinity_h, Basis, Element, Found, GaussPoint=t)
+      IF (.NOT.Found) CALL WARN(SolverName,'Salinity not found - setting to zero')
+      !TemperatureAtIP = SUM( Basis(1:N) * NodalTemperature(1:N) )
+      !PorosityAtIP = SUM( Basis(1:N) * NodalPorosity(1:N) )
+      !PressureAtIP = SUM( Basis(1:N) * NodalPressure(1:N) )
+      !SalinityAtIP = SUM( Basis(1:N) * NodalSalinity(1:N) )
 
 
       ! Variable gradients at IP
@@ -1831,7 +1847,7 @@ SUBROUTINE PermafrostHeatTransfer( Model,Solver,dt,TransientSimulation )
   CHARACTER(LEN=MAX_NAME_LEN), PARAMETER :: SolverName='PermafrostHeatEquation'
   CHARACTER(LEN=MAX_NAME_LEN) :: PressureName, PorosityName, SalinityName, GWfluxName, PhaseChangeModel,&
        ElementRockMaterialName,VarName, DepthName, XiAtIPName
-  TYPE(ValueHandle_t) :: Load_h, Pressure_h, Salinity_h, Porosity_h
+  TYPE(ValueHandle_t) :: Load_h, Temperature_h, Pressure_h, Salinity_h, Porosity_h
 
   SAVE DIM,FirstTime,AllocationsDone,GivenGWFlux,DepthName,XiAtIPName,&
        CurrentRockMaterial,CurrentSoluteMaterial,CurrentSolventMaterial,NumberOfRockRecords,&
@@ -1847,6 +1863,7 @@ SUBROUTINE PermafrostHeatTransfer( Model,Solver,dt,TransientSimulation )
   CALL ListInitElementKeyword( Load_h,'Body Force','Heat Source' )
 
   ! Handles to other variables
+  CALL ListInitElementKeyword( Temperature_h, 'Material', 'Temperature Variable' )
   CALL ListInitElementKeyword( Pressure_h, 'Material', 'Pressure Variable' )
   CALL ListInitElementKeyword( Salinity_h, 'Material', 'Salinity Variable' )
   CALL ListInitElementKeyword( Porosity_h, 'Material', 'Porosity Variable' )  
@@ -2137,16 +2154,23 @@ CONTAINS
       LoadAtIP = LoadAtIP + SUM( Basis(1:n) * LOAD(1:n) )
 
       ! Variables (Temperature, Porosity, Pressure, Salinity) at IP
-      TemperatureAtIP = SUM( Basis(1:N) * NodalTemperature(1:N) )
-            PorosityAtIP = ListGetElementReal( Porosity_h, Basis, Element, Found, GaussPoint=t)
-      IF (.NOT.Found) CALL FATAL(SolverName,'Porosity not found')
-      PressureAtIP = ListGetElementReal( Pressure_h, Basis, Element, Found, GaussPoint=t)
-      IF (.NOT.Found) CALL FATAL(SolverName,'Pressure not found')
-      SalinityAtIP = ListGetElementReal( Salinity_h, Basis, Element, Found, GaussPoint=t)
-      IF (.NOT.Found) CALL WARN(SolverName,'Salinity not found - setting to zero')
+      
+      !TemperatureAtIP = SUM( Basis(1:N) * NodalTemperature(1:N) )
       !PorosityAtIP = SUM( Basis(1:N) * NodalPorosity(1:N))
       !PressureAtIP = SUM( Basis(1:N) * NodalPressure(1:N))      
       !SalinityAtIP = SUM( Basis(1:N) * NodalSalinity(1:N))
+
+      
+      TemperatureAtIP = ListGetElementReal( Temperature_h, Basis, Element, Found, GaussPoint=t)
+      IF (.NOT.Found) CALL FATAL(SolverName,'Temperature not found')
+      PorosityAtIP = ListGetElementReal( Porosity_h, Basis, Element, Found, GaussPoint=t)
+      IF (.NOT.Found) CALL FATAL(SolverName,'Porosity not found')
+      PressureAtIP = ListGetElementReal( Pressure_h, Basis, Element, Found, GaussPoint=t)
+      IF (.NOT.Found) CALL FATAL(SolverName,'Pressure not found')
+      SalinityAtIP = 0.0_dp
+      SalinityAtIP = ListGetElementReal( Salinity_h, Basis, Element, Found, GaussPoint=t)
+      IF (.NOT.Found) CALL WARN(SolverName,'Salinity not found - setting to zero')
+
 
       !Materialproperties needed for computing Xi at IP
 
@@ -2761,11 +2785,17 @@ CONTAINS
       LoadAtIP = SUM( Basis(1:n) * LOAD(1:n) )
 
       ! Variables (Temperature, Porosity, Pressure, Salinity) at IP
-      TemperatureAtIP = SUM( Basis(1:N) * NodalTemperature(1:N) )
-      PorosityAtIP = SUM( Basis(1:N) * NodalPorosity(1:N))
-      PressureAtIP = SUM( Basis(1:N) * NodalPressure(1:N))      
+      !TemperatureAtIP = SUM( Basis(1:N) * NodalTemperature(1:N) )
+      !PorosityAtIP = SUM( Basis(1:N) * NodalPorosity(1:N))
+      !PressureAtIP = SUM( Basis(1:N) * NodalPressure(1:N))      
       SalinityAtIP = SUM( Basis(1:N) * NodalSalinity(1:N))
-
+      !PorosityAtIP = ListGetElementReal( Porosity_h, Basis, Element, Found, GaussPoint=t)
+      !IF (.NOT.Found) CALL FATAL(SolverName,'Porosity not found')
+      !PressureAtIP = ListGetElementReal( Pressure_h, Basis, Element, Found, GaussPoint=t)
+      !IF (.NOT.Found) CALL FATAL(SolverName,'Pressure not found')
+      !SalinityAtIP = ListGetElementReal( Salinity_h, Basis, Element, Found, GaussPoint=t)
+      !IF (.NOT.Found) CALL WARN(SolverName,'Salinity not found - setting to zero')
+      
       vstarAtIP = 0.0_dp ! CHANGE to SUM(  Basis(1:N) * NodalRockVelocity(1:N) )
 
       ! Gradients of Variables at IP - moved from flux computation to here
