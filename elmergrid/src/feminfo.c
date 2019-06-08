@@ -2,7 +2,7 @@
    ElmerGrid - A simple mesh generation and manipulation utility  
    Copyright (C) 1995- , CSC - IT Center for Science Ltd.   
 
-   Author:  Peter Råback
+   Author:  Peter Rï¿½back
    Email:   Peter.Raback@csc.fi
    Address: CSC - IT Center for Science Ltd.
             Keilaranta 14
@@ -181,7 +181,7 @@ static int GetCommand(char *line1,char *line2,FILE *io)
   gotlinefeed = FALSE;
   j = 0;
   for(i=0;i<MAXLINESIZE;i++) {
-    if(line0[i] == '\n' ) {
+    if(line0[i] == '\n' || line0[i] == '\0' ) {
       gotlinefeed = TRUE;
       break;
     }
@@ -199,7 +199,7 @@ static int GetCommand(char *line1,char *line2,FILE *io)
   if(j) { /* Arguments are actually on the same line after '=' */
     for(i=j+1;i<MAXLINESIZE;i++) {
       line2[i-j-1] = line0[i];    
-      if( line0[i] == '\n' ) {
+      if( line0[i] == '\n' || line0[i] == '\0' ) {
 	gotlinefeed = TRUE;
 	break;
       }
@@ -220,7 +220,7 @@ static int GetCommand(char *line1,char *line2,FILE *io)
 
     gotlinefeed = FALSE;
     for(i=0;i<MAXLINESIZE;i++) {
-      if(line2[i] == '\n' ) {
+      if(line2[i] == '\n' || line2[i] == '\0' ) {
 	gotlinefeed = TRUE;
 	break;
       }
@@ -281,11 +281,12 @@ void InitParameters(struct ElmergridType *eg)
   eg->nodes3d = 0;
   eg->metis = 0;
   eg->metiscontig = FALSE;
+  eg->metisseed = 0;
   eg->partopt = 0;
   eg->partoptim = FALSE;
   eg->partbcoptim = TRUE;
   eg->partjoin = 0;
-  eg->partitionhalo = 0;
+  for(i=0;i<MAXHALOMODES;i++) eg->parthalo[i] = FALSE;
   eg->partitionindirect = FALSE;
   eg->reduce = FALSE;
   eg->increase = FALSE;
@@ -468,23 +469,30 @@ int InlineParameters(struct ElmergridType *eg,int argc,char *argv[])
     }
 
     if(strcmp(argv[arg],"-halo") == 0) {
-      eg->partitionhalo = 1;
+      eg->parthalo[1] = TRUE;
     }
     if(strcmp(argv[arg],"-halobc") == 0) {
-      eg->partitionhalo = 2;
+      eg->parthalo[2] = TRUE;
     }
+    if(strcmp(argv[arg],"-halodb") == 0) {
+      eg->parthalo[1] = TRUE;
+      eg->parthalo[2] = TRUE;            
+    }   
     if(strcmp(argv[arg],"-haloz") == 0) {
-      eg->partitionhalo = 3;
+      eg->parthalo[3] = TRUE;
     }
     if(strcmp(argv[arg],"-halor") == 0) {
-      eg->partitionhalo = 3;
+      eg->parthalo[3] = TRUE;
     }
+    if(strcmp(argv[arg],"-halogreedy") == 0) {
+      eg->parthalo[4] = TRUE;
+    }    
     if(strcmp(argv[arg],"-indirect") == 0) {
       eg->partitionindirect = TRUE;
     }
     if(strcmp(argv[arg],"-metisorder") == 0) {
       eg->order = 3;
-    }
+    }    
     if(strcmp(argv[arg],"-centralize") == 0) {
       eg->center = TRUE;
     }
@@ -744,7 +752,18 @@ int InlineParameters(struct ElmergridType *eg,int argc,char *argv[])
       printf("This version of ElmerGrid was compiled without Metis library!\n");
 #endif     
     }
-
+    
+    if(strcmp(argv[arg],"-metisseed") == 0 ) {
+      if(arg+1 >= argc) {
+	printf("The random number seed is required as parameter for -metisseed!\n");
+	return(15);
+      }
+      else {
+	eg->metisseed = atoi(argv[arg+1]);
+	printf("Seed for Metis partitioning routines: %d\n",eg->metisseed);
+      }
+    }
+    
     if(strcmp(argv[arg],"-partjoin") == 0) {
       if(arg+1 >= argc) {
 	printf("The number of partitions is required as a parameter!\n");
@@ -1287,16 +1306,20 @@ int LoadCommands(char *prefix,struct ElmergridType *eg,
     }
     else if(strstr(command,"HALO")) {
       for(j=0;j<MAXLINESIZE;j++) params[j] = toupper(params[j]);
-      if(strstr(params,"TRUE")) eg->partitionhalo = 1;      
+      if(strstr(params,"TRUE")) eg->parthalo[1] = TRUE;      
     }
     else if(strstr(command,"BOUNDARY HALO")) {
       for(j=0;j<MAXLINESIZE;j++) params[j] = toupper(params[j]);
-      if(strstr(params,"TRUE")) eg->partitionhalo = 2;
+      if(strstr(params,"TRUE")) eg->parthalo[2] = TRUE;
     }
     else if(strstr(command,"EXTRUDED HALO")) {
       for(j=0;j<MAXLINESIZE;j++) params[j] = toupper(params[j]);
-      if(strstr(params,"TRUE")) eg->partitionhalo = 3;
+      if(strstr(params,"TRUE")) eg->parthalo[3] = TRUE;
     }
+    else if(strstr(command,"GREEDY HALO")) {
+      for(j=0;j<MAXLINESIZE;j++) params[j] = toupper(params[j]);
+      if(strstr(params,"TRUE")) eg->parthalo[4] = TRUE;
+    }    
     else if(strstr(command,"PARTBW")) {
       for(j=0;j<MAXLINESIZE;j++) params[j] = toupper(params[j]);
       if(strstr(params,"TRUE")) eg->partbw = TRUE;      
@@ -2229,7 +2252,7 @@ int LoadElmergridOld(struct GridType **grid,int *nogrids,char *prefix,int info)
     case 31:
     case 32:
 
-      /* I dont know how to set this, luckily this piece of code should be obsolite */
+      /* I don't know how to set this, luckily this piece of code should be obsolete */
       l = 1;
       for(i=grid[k]->mappings;i<grid[k]->mappings+l;i++) {
 	Getline(line,in);
@@ -3072,8 +3095,3 @@ int ShowCorners(struct FemType *data,int variable,Real offset)
   }
   return(0);
 }
-
-
-
-
-

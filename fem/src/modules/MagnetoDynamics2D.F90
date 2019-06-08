@@ -27,7 +27,7 @@
 ! *  cylindrically symmetric 2D case. In both cases the vector potential
 ! *  is reduced to a single component. 
 ! *
-! *  Authors: Juha Ruokolainen, Mika Malinen, Peter R�back
+! *  Authors: Juha Ruokolainen, Mika Malinen, Peter Råback
 ! *  Email:   Juha.Ruokolainen@csc.fi
 ! *  Web:     http://www.csc.fi/elmer
 ! *  Address: CSC - IT Center for Science Ltd.
@@ -99,8 +99,9 @@ SUBROUTINE MagnetoDynamics2D( Model,Solver,dt,TransientSimulation ) ! {{{
                NEWX(:), NEWY(:), POT(:)
 
   TYPE(Mesh_t),   POINTER :: Mesh
-
-  LOGICAL :: NewtonRaphson = .FALSE., CSymmetry
+  TYPE(ValueList_t), POINTER :: SolverParams
+  
+  LOGICAL :: NewtonRaphson = .FALSE., CSymmetry, SkipDegenerate
   INTEGER :: CoupledIter
   TYPE(Variable_t), POINTER :: IterV, CoordVar
 
@@ -119,14 +120,18 @@ SUBROUTINE MagnetoDynamics2D( Model,Solver,dt,TransientSimulation ) ! {{{
   ! --------------------------------------------------------------
   NULLIFY(BC)
   Mesh => GetMesh()
-  NewtonRaphson = GetLogical(GetSolverParams(), 'Newton-Raphson Iteration', Found)
+  SolverParams => GetSolverParams()
+  
+  NewtonRaphson = GetLogical(SolverParams, 'Newton-Raphson Iteration', Found)
   IF(.NOT. Found) NewtonRaphson = .FALSE.
   IF(GetCoupledIter()>1) NewtonRaphson = .TRUE.
 
-  NonlinIter = GetInteger(GetSolverParams(), &
+  NonlinIter = GetInteger(SolverParams, &
            'Nonlinear System Max Iterations',Found)
   IF(.NOT.Found) NonlinIter = 1
 
+  SkipDegenerate = GetLogical(SolverParams, 'Skip Degenerate Elements',Found ) 
+  
   CSymmetry = ( CurrentCoordinateSystem() == AxisSymmetric .OR. &
       CurrentCoordinateSystem() == CylindricSymmetric )
 
@@ -145,6 +150,10 @@ SUBROUTINE MagnetoDynamics2D( Model,Solver,dt,TransientSimulation ) ! {{{
        Element => GetActiveElement(t)
        n  = GetElementNOFNodes(Element)
        nd = GetElementNOFDOFs(Element)
+       IF( SkipDegenerate .AND. DegenerateElement( Element ) ) THEN
+         CALL Info('MagnetoDynamics2D','Skipping degenerate element:'//TRIM(I2S(t)),Level=12)
+         CYCLE
+       END IF
        CALL LocalMatrix(Element, n, nd)
     END DO
 !$omp end parallel do
@@ -600,10 +609,10 @@ CONTAINS
 
       ! Finally, the elemental matrix & vector:
       !----------------------------------------
-      IF(TransientSimulation .AND. C_ip/=0._dp) THEN
+      IF (TransientSimulation .AND. C_ip/=0._dp .AND. CoilType /= 'stranded') THEN
         DO p=1,nd
           DO q=1,nd
-            IF(CoilType /= 'stranded') MASS(p,q) = MASS(p,q) + IP % s(t) * detJ * C_ip * Basis(q)*Basis(p)
+            MASS(p,q) = MASS(p,q) + IP % s(t) * detJ * C_ip * Basis(q)*Basis(p)
           END DO
         END DO
       END IF
@@ -617,9 +626,9 @@ CONTAINS
         Bt(:,2) = Bt(:,2) + Basis(:)/x
       end if
 
-        DO p = 1,nd
-          Ht(p,:) = MATMUL(nu_tensor, Bt(p,:))
-        END DO
+      DO p = 1,nd
+        Ht(p,:) = MATMUL(nu_tensor, Bt(p,:))
+      END DO
 
       STIFF(1:nd,1:nd) = STIFF(1:nd,1:nd) + IP % s(t) * DetJ * &
              MATMUL(Ht, TRANSPOSE(Bt))
@@ -1366,7 +1375,7 @@ CONTAINS
 
     LOGICAL :: FoundIm
 
-!$omp threadprivate(Nodes)
+!$omp threadprivate(Nodes,HB,CubicCoeff,InPlaneProximity)
 !------------------------------------------------------------------------------
     CALL GetElementNodes( Nodes,Element )
     STIFF = 0._dp
@@ -1532,12 +1541,14 @@ CONTAINS
       C_ip = SUM( Basis(1:n) * C(1:n) )
       M_ip = MATMUL( M,Basis(1:n) )
 
-      DO p=1,nd
-        DO q=1,nd
-          IF(CoilType /= 'stranded') STIFF(p,q) = STIFF(p,q) + &
-                                   IP % s(t) * detJ * im * omega * C_ip * Basis(q)*Basis(p)
+      IF(CoilType /= 'stranded') THEN
+        DO p=1,nd
+          DO q=1,nd
+            STIFF(p,q) = STIFF(p,q) + &
+                IP % s(t) * detJ * im * omega * C_ip * Basis(q)*Basis(p)
+          END DO
         END DO
-      END DO
+      END IF
 
       Bt(:,1) = -dbasisdx(:,2)
       Bt(:,2) =  dbasisdx(:,1)
@@ -2122,6 +2133,9 @@ CONTAINS
     REAL(KIND=dp) :: LaminatePowerDensity, BMagnAtIP, Fsk, Lambda, LaminateThickness, &
                      mu0=4d-7*PI, skindepth
     
+    LOGICAL :: BertottiCompute = .FALSE.
+    REAL(KIND=dp) :: BertottiLoss, BRTc1, BRTc2, BRTc3, BRTc4, BRTc5
+
     SAVE Nodes
 
     n = 2*MAX(Solver % Mesh % MaxElementDOFs,Solver % Mesh % MaxElementNodes)
@@ -2332,9 +2346,9 @@ CONTAINS
 
       CALL GetLocalSolution( POT, VarName )
 
+      Material => GetMaterial()
       IF( JouleHeating ) THEN
         BodyId = GetBody() 
-        Material => GetMaterial()
         Cond(1:n) = GetReal( Material, 'Electric Conductivity', Found, Element)
       END IF
 
@@ -2343,6 +2357,27 @@ CONTAINS
         LossCoeff = ListGetFun( Material,'Fourier Loss Coefficient',Freq,Found )
         EddyLoss = .FALSE.
         IF (.NOT. Found) EddyLoss = .TRUE.
+      END IF
+
+      BertottiCompute = .FALSE.
+      BRTc1 = GetCReal( Material,'Extended Bertotti Coefficient 1',Found ) 
+      IF ( Found ) THEN
+        BertottiCompute = .TRUE.
+        Freq = Omega / (2*PI)
+        BertottiLoss = 0.0_dp
+        BRTc2 = GetCReal( Material,'Extended Bertotti Coefficient 2',Found ) 
+        IF (.NOT. Found) CALL Fatal ('MagnetoDynamics2D','Extended Bertotti activated, &
+                    Extended Bertotti Coefficient 2 not found!')
+
+        BRTc3 = GetCReal( Material,'Extended Bertotti Coefficient 3',Found ) 
+        IF (.NOT. Found) CALL Fatal ('MagnetoDynamics2D','Extended Bertotti activated, &
+                    Extended Bertotti Coefficient 3 not found!')
+
+        BRTc4 = GetCReal( Material,'Extended Bertotti Coefficient 4',Found ) 
+        IF (.NOT. Found) BRTc4 = 1.5_dp
+
+        BRTc5 = GetCReal( Material,'Extended Bertotti Coefficient 5',Found ) 
+        IF (.NOT. Found) BRTc5 = 1.5_dp
       END IF
       
       IF (BodyVolumesCompute) THEN
@@ -2465,7 +2500,7 @@ CONTAINS
         IF (LorentzForceCompute) THEN
           BodyId = GetBody()
           ! Let's compute the JxB for all the bodies and 
-          ! then we sum from these for the components which are outputed.
+          ! then we sum from these for the components which are outputted.
 
           Bx = CMPLX(BatIp(1), BatIp(3), KIND=dp)
           By = CMPLX(BatIp(2), BatIp(4), KIND=dp)
@@ -2492,6 +2527,13 @@ CONTAINS
           LaminatePowerDensity = 1._dp/24._dp * REAL(CondAtIp) * &
                 (LaminateThickness * Omega * BMagnAtIP)**2._dp * Fsk
           TotalHeating = TotalHeating + Weight * ModelDepth * LaminatePowerDensity
+        END IF
+
+        IF (BertottiCompute) THEN
+          ! Compute Bertotti loss for core
+          BertottiLoss = BRTc1*Freq*BMagnAtIP**2.+ BRTc2*(Freq*BMagnAtIP)**2.+BRTc3*Freq**BRTc4*BMagnAtIP**BRTc5
+          TotalHeating = TotalHeating + BertottiLoss
+          BAtIp(6) = BAtIp(6) + BertottiLoss ! unorthodox
         END IF
 
         IF( LossEstimation ) THEN
@@ -2619,7 +2661,7 @@ CONTAINS
       !CALL ListAddConstReal( Model % Simulation,'res: sin mode fourier loss', ComponentLoss(2))       
     
       !---------------------------------------------------------------------------------
-      ! Screen ouput for componentwise and bodywise losses 
+      ! Screen output for componentwise and bodywise losses 
       !--------------------------------------------------------------------------------
       WRITE( Message,'(A,ES12.3)') 'Loss for cos mode: ', ComponentLoss(1)
       CALL Info('BSolver', Message, Level=6 )

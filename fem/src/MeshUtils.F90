@@ -802,8 +802,8 @@ END SUBROUTINE GetMaxDefs
      END DO
 
      ! Choose the bigger one to honor the old convention
-     ! This eliminates at the same time the unsuccesfull case of zero. 
-     TargetBody(1) = MAX( CandA, CandB ) 
+     ! This eliminates at the same time the unsuccessful case of zero.
+     TargetBody(1) = MAX( CandA, CandB )
 
      IF( TargetBody(1) > 0 ) THEN
        CALL Info('CreateDiscontMesh',&
@@ -1661,7 +1661,7 @@ END SUBROUTINE GetMaxDefs
          Element % PartIndex = mype
        END IF
 
-       Element % TYPE => GetElementType( ElemType )
+       Element % TYPE => GetElementType(ElemType)
 
        IF ( .NOT. ASSOCIATED(Element % TYPE) ) THEN
          CALL Fatal('ReadElementsFile','Element of type '&
@@ -1760,7 +1760,7 @@ END SUBROUTINE GetMaxDefs
        ElemType = ivals(ioffset+5)
        
        Element % ElementIndex = j
-       Element % TYPE => GetElementType( ElemType )
+       Element % TYPE => GetElementType(ElemType)
        IF ( .NOT. ASSOCIATED(Element % TYPE) ) THEN
          CALL Fatal('ReadBoundaryFile','Element of type '//TRIM(I2S(ElemType))//'could not be associated!')
        END IF
@@ -2092,9 +2092,9 @@ END SUBROUTINE GetMaxDefs
 
    ! Get sizes of mesh structures for allocation
    !--------------------------------------------------------------------
-   CALL LoadMeshStep( 1, Mesh, MeshNamePar, mype, numprocs, Parallel ) 
+   CALL LoadMeshStep( 1, Mesh, MeshNamePar, mype, numprocs, Parallel )
 
-   ! Initialize and allocate mesh stuctures
+   ! Initialize and allocate mesh structures
    !---------------------------------------------------------------------
    IF( BoundariesOnly ) Mesh % NumberOfBulkElements = 0
    CALL InitializeMesh( Mesh )
@@ -2992,7 +2992,7 @@ END SUBROUTINE GetMaxDefs
        DO j=1,Element % TYPE % NumberOfFaces
           Face => Mesh % Faces( Element % FaceIndexes(j) )
 
-          ! Set attibutes of p element faces
+          ! Set attributes of p element faces
           IF ( ASSOCIATED(Element % PDefs) ) THEN
              ! Set face polynomial degree and dofs
              Face % PDefs % P = MAX(Element % PDefs % P, Face % PDefs % P)
@@ -3529,53 +3529,53 @@ END SUBROUTINE GetMaxDefs
       Enforce = .FALSE.
     END IF
 
-    TriangleCenterMap(1,:) = (/ 1, 2, 4/)
-    TriangleCenterMap(2,:) = (/ 2, 3, 5/)
-    TriangleCenterMap(3,:) = (/ 3, 1, 6/)
+    TriangleCenterMap(1,:) = [ 1, 2, 4]
+    TriangleCenterMap(2,:) = [ 2, 3, 5]
+    TriangleCenterMap(3,:) = [ 3, 1, 6]
     
-    QuadCenterMap(1,:) = (/ 1, 2, 5/)
-    QuadCenterMap(2,:) = (/ 2, 3, 6/)
-    QuadCenterMap(3,:) = (/ 3, 4, 7/)
-    QuadCenterMap(4,:) = (/ 4, 1, 8/)
+    QuadCenterMap(1,:) = [ 1, 2, 5]
+    QuadCenterMap(2,:) = [ 2, 3, 6]
+    QuadCenterMap(3,:) = [ 3, 4, 7]
+    QuadCenterMap(4,:) = [ 4, 1, 8]
     
-    TetraCenterMap(1,:) = (/ 1, 2, 5/)
-    TetraCenterMap(2,:) = (/ 2, 3, 6/)
-    TetraCenterMap(3,:) = (/ 3, 1, 7/)
-    TetraCenterMap(4,:) = (/ 1, 4, 8/)
-    TetraCenterMap(5,:) = (/ 2, 4, 9/)
-    TetraCenterMap(6,:) = (/ 3, 4, 10/)
+    TetraCenterMap(1,:) = [ 1, 2, 5]
+    TetraCenterMap(2,:) = [ 2, 3, 6]
+    TetraCenterMap(3,:) = [ 3, 1, 7]
+    TetraCenterMap(4,:) = [ 1, 4, 8]
+    TetraCenterMap(5,:) = [ 2, 4, 9]
+    TetraCenterMap(6,:) = [ 3, 4, 10]
 
-    BrickCenterMap(1,:) = (/ 1, 2,  9 /)
-    BrickCenterMap(2,:) = (/ 2, 3,  10 /)
-    BrickCenterMap(3,:) = (/ 3, 4,  11 /)
-    BrickCenterMap(4,:) = (/ 4, 1,  12 /)
-    BrickCenterMap(5,:) = (/ 1, 5,  13 /)
-    BrickCenterMap(6,:) = (/ 2, 6,  14 /)
-    BrickCenterMap(7,:) = (/ 3, 7,  15 /)
-    BrickCenterMap(8,:) = (/ 4, 8,  16 /)
-    BrickCenterMap(9,:) = (/ 5, 6,  17 /)
-    BrickCenterMap(10,:) = (/ 6, 7, 18 /)
-    BrickCenterMap(11,:) = (/ 7, 8, 19 /)
-    BrickCenterMap(12,:) = (/ 8, 5, 20 /)
+    BrickCenterMap(1,:) = [ 1, 2,  9 ]
+    BrickCenterMap(2,:) = [ 2, 3,  10 ]
+    BrickCenterMap(3,:) = [ 3, 4,  11 ]
+    BrickCenterMap(4,:) = [ 4, 1,  12 ]
+    BrickCenterMap(5,:) = [ 1, 5,  13 ]
+    BrickCenterMap(6,:) = [ 2, 6,  14 ]
+    BrickCenterMap(7,:) = [ 3, 7,  15 ]
+    BrickCenterMap(8,:) = [ 4, 8,  16 ]
+    BrickCenterMap(9,:) = [ 5, 6,  17 ]
+    BrickCenterMap(10,:) = [ 6, 7, 18 ]
+    BrickCenterMap(11,:) = [ 7, 8, 19 ]
+    BrickCenterMap(12,:) = [ 8, 5, 20 ]
     
-    WedgeCenterMap(1,:) = (/ 1, 2, 7 /)
-    WedgeCenterMap(2,:) = (/ 2, 3, 8 /)
-    WedgeCenterMap(3,:) = (/ 3, 1, 9 /)
-    WedgeCenterMap(4,:) = (/ 4, 5, 10 /)
-    WedgeCenterMap(5,:) = (/ 5, 6, 11 /)
-    WedgeCenterMap(6,:) = (/ 6, 4, 12 /)
-    WedgeCenterMap(7,:) = (/ 1, 4, 13 /)
-    WedgeCenterMap(8,:) = (/ 2, 5, 14 /)
-    WedgeCenterMap(9,:) = (/ 3, 6, 15 /)
+    WedgeCenterMap(1,:) = [ 1, 2, 7 ]
+    WedgeCenterMap(2,:) = [ 2, 3, 8 ]
+    WedgeCenterMap(3,:) = [ 3, 1, 9 ]
+    WedgeCenterMap(4,:) = [ 4, 5, 10 ]
+    WedgeCenterMap(5,:) = [ 5, 6, 11 ]
+    WedgeCenterMap(6,:) = [ 6, 4, 12 ]
+    WedgeCenterMap(7,:) = [ 1, 4, 13 ]
+    WedgeCenterMap(8,:) = [ 2, 5, 14 ]
+    WedgeCenterMap(9,:) = [ 3, 6, 15 ]
     
-    PyramidCenterMap(1,:) = (/ 1,2,6 /)
-    PyramidCenterMap(2,:) = (/ 2,3,7 /)
-    PyramidCenterMap(3,:) = (/ 3,4,8 /)
-    PyramidCenterMap(4,:) = (/ 4,1,9 /)
-    PyramidCenterMap(5,:) = (/ 1,5,10 /)
-    PyramidCenterMap(6,:) = (/ 2,5,11 /)
-    PyramidCenterMap(7,:) = (/ 3,5,12 /)
-    PyramidCenterMap(8,:) = (/ 4,5,13 /)
+    PyramidCenterMap(1,:) = [ 1,2,6 ]
+    PyramidCenterMap(2,:) = [ 2,3,7 ]
+    PyramidCenterMap(3,:) = [ 3,4,8 ]
+    PyramidCenterMap(4,:) = [ 4,1,9 ]
+    PyramidCenterMap(5,:) = [ 1,5,10 ]
+    PyramidCenterMap(6,:) = [ 2,5,11 ]
+    PyramidCenterMap(7,:) = [ 3,5,12 ]
+    PyramidCenterMap(8,:) = [ 4,5,13 ]
     
     x => Mesh % Nodes % x
     y => Mesh % Nodes % y
@@ -3790,9 +3790,9 @@ END SUBROUTINE GetMaxDefs
           f = ATAN2( y, x )
         END SELECT
 
-        ! If the BC is not set then let the first be the one to compare againts
+        ! If the BC is not set then let the first be the one to compare against
         IF( .NOT. BCSet( BC ) ) THEN
-          BCVal( BC ) = f         
+          BCVal( BC ) = f
           BCSet( BC ) = .TRUE.
           IF( Debug ) PRINT *,'Compareing BC '//TRIM(I2S(BC))//' against:',f
         ELSE
@@ -4034,10 +4034,10 @@ END SUBROUTINE GetMaxDefs
     END IF
     IF( SplitQuadratic ) CALL Info('CreateInterfaceMeshes',&
         'Quadratic elements will be split',Level=7)
-    
-      
-    
-    ! If the target is larger than number of BCs givem then 
+
+
+
+    ! If the target is larger than number of BCs given then
     ! it has probably been created on-the-fly from a discontinuous boundary.
     OnTheFlyBC = ( Trgt > Model % NumberOfBCs )
 
@@ -4266,22 +4266,22 @@ END SUBROUTINE GetMaxDefs
       
       IF( nSplit > 1 ) THEN
         IF( ElemCode == 408 ) THEN
-          SplitSizes(1:nSplit) = (/ 4,3,3,3,3 /)
+          SplitSizes(1:nSplit) = [ 4,3,3,3,3 ]
           DO ii=1,nSplit
             jj = ind-nSplit+ii
             m = SplitSizes(ii)
             
             SELECT CASE (ii)
             CASE( 1 )
-              SplitMap(1:m) = (/ 5,6,7,8 /)
+              SplitMap(1:m) = [ 5,6,7,8 ]
             CASE( 2 )
-              SplitMap(1:m) = (/ 1, 5, 8 /)
+              SplitMap(1:m) = [ 1, 5, 8 ]
             CASE( 3 ) 
-              SplitMap(1:m) = (/ 2, 6, 5 /)
+              SplitMap(1:m) = [ 2, 6, 5 ]
             CASE( 4 )
-              SplitMap(1:m) = (/ 3, 7, 6 /)
+              SplitMap(1:m) = [ 3, 7, 6 ]
             CASE( 5 ) 
-              SplitMap(1:m) = (/ 4, 8, 7 /)
+              SplitMap(1:m) = [ 4, 8, 7 ]
             END SELECT
 
             CALL AllocateVector(PMesh % Elements(jj) % NodeIndexes, m )
@@ -4295,20 +4295,20 @@ END SUBROUTINE GetMaxDefs
           PMesh % MaxElementNodes = MAX( PMesh % MaxElementNodes, 4 )
 
         ELSE IF( ElemCode == 409 ) THEN
-          SplitSizes(1:n) = (/ 4,4,4,4 /)
+          SplitSizes(1:n) = [ 4,4,4,4 ]
           DO ii=1,nSplit
             jj = ind-nSplit+ii
             m = SplitSizes(ii)
             
             SELECT CASE (ii)
             CASE( 1 )
-              SplitMap(1:m) = (/ 1, 5, 9, 8 /)
+              SplitMap(1:m) = [ 1, 5, 9, 8 ]
             CASE( 2 )
-              SplitMap(1:m) = (/ 2, 6, 9, 5 /)
+              SplitMap(1:m) = [ 2, 6, 9, 5 ]
             CASE( 3 ) 
-              SplitMap(1:m) = (/ 3, 7, 9, 6 /)
+              SplitMap(1:m) = [ 3, 7, 9, 6 ]
             CASE( 4 ) 
-              SplitMap(1:m) = (/ 4, 8, 9, 7 /)
+              SplitMap(1:m) = [ 4, 8, 9, 7 ]
             END SELECT
 
             CALL AllocateVector(PMesh % Elements(jj) % NodeIndexes, m )
@@ -4322,20 +4322,20 @@ END SUBROUTINE GetMaxDefs
           PMesh % MaxElementNodes = MAX( PMesh % MaxElementNodes, 4 )
           
         ELSE IF( ElemCode == 306 ) THEN
-          SplitSizes(1:n) = (/ 3,3,3,3 /)
+          SplitSizes(1:n) = [ 3,3,3,3 ]
           DO ii=1,nSplit
             jj = ind-nSplit+ii
             m = SplitSizes(ii)
             
             SELECT CASE (ii)
             CASE( 1 )
-              SplitMap(1:m) = (/ 1, 4, 6 /)
+              SplitMap(1:m) = [ 1, 4, 6 ]
             CASE( 2 )
-              SplitMap(1:m) = (/ 2, 5, 4 /)
+              SplitMap(1:m) = [ 2, 5, 4 ]
             CASE( 3 ) 
-              SplitMap(1:m) = (/ 3, 6, 5 /)
+              SplitMap(1:m) = [ 3, 6, 5 ]
             CASE( 4 ) 
-              SplitMap(1:m) = (/ 4, 5, 6 /)
+              SplitMap(1:m) = [ 4, 5, 6 ]
             END SELECT
 
             CALL AllocateVector(PMesh % Elements(j) % NodeIndexes, m )
@@ -4368,7 +4368,7 @@ END SUBROUTINE GetMaxDefs
             Parent => Element % BoundaryInfo % Right
           END IF
 
-          q => Find_Face(Parent,Element)
+          q => Find_Face(Mesh,Parent,Element)
 
           PMesh % Elements(ind) % NodeIndexes(1:n) = q % NodeIndexes(1:n)
 
@@ -4475,8 +4475,8 @@ END SUBROUTINE GetMaxDefs
 
 
   !---------------------------------------------------------------------------
-  !> Given two meshes that should occupy the same domain in space 
-  !> use rotation, scaling and translation to achive this goal.
+  !> Given two meshes that should occupy the same domain in space
+  !> use rotation, scaling and translation to achieve this goal.
   !---------------------------------------------------------------------------
   SUBROUTINE OverlayIntefaceMeshes(BMesh1, BMesh2, BParams )
   !---------------------------------------------------------------------------
@@ -4794,16 +4794,17 @@ END SUBROUTINE GetMaxDefs
 !------------------------------------------------------------------------------
 
 !------------------------------------------------------------------------------
-  FUNCTION Find_Face(Parent,Element) RESULT(ptr)
+  FUNCTION Find_Face(Mesh,Parent,Element) RESULT(ptr)
 !------------------------------------------------------------------------------
     TYPE(Element_t), POINTER :: Ptr
+    TYPE(Mesh_t) :: Mesh
     TYPE(Element_t) :: Parent, Element
 
     INTEGER :: i,j,k,n
 
     Ptr => NULL()
     DO i=1,Parent % TYPE % NumberOfFaces
-      Ptr => CurrentModel % Mesh % Faces(Parent % FaceIndexes(i))
+      Ptr => Mesh % Faces(Parent % FaceIndexes(i))
       n=0
       DO j=1,Ptr % TYPE % NumberOfNodes
         DO k=1,Element % TYPE % NumberOfNodes
@@ -4891,7 +4892,7 @@ END SUBROUTINE GetMaxDefs
 !------------------------------------------------------------------------------
 
   !---------------------------------------------------------------------------
-  !> Create a nodal projector related to discontinous interface.
+  !> Create a nodal projector related to discontinuous interface.
   !---------------------------------------------------------------------------
    FUNCTION NodalProjectorDiscont( Mesh, bc ) RESULT ( Projector )
   !---------------------------------------------------------------------------
@@ -5081,10 +5082,16 @@ END SUBROUTINE GetMaxDefs
     IF( StrongProjector .AND. WeakProjector ) THEN
       CALL Fatal('LevelProjector','Projector cannot be weak (Galerkin) and strong at the same time!')
     END IF
-
     
-    MeshDIm = Mesh % MeshDim
-
+    MeshDim = Mesh % MeshDim
+    IF( MeshDim == 3 ) THEN
+      Element => BMesh1 % Elements(1)
+      IF( Element % TYPE % DIMENSION == 1 ) THEN
+        CALL Warn('LevelProjector','Enforcing 1D integration for 1D boundary elements in 3D mesh!')
+        MeshDim = 2
+      END IF
+    END IF
+    
     ! Generic integrator does not make any assumptions on the way the mesh 
     ! is constructured. Otherwise constant strides in y-direction is assumed. 
     ! For weak strategy always use the generic integrator. 
@@ -5185,8 +5192,8 @@ END SUBROUTINE GetMaxDefs
     END IF
 
     ! This is the tolerance used to define constant direction in radians
-    ! For consistancy it should not be sloppier than the SkewTol
-    ! but it could be equally sloppy as below. 
+    ! For consistency it should not be sloppier than the SkewTol
+    ! but it could be equally sloppy as below.
     RadTol = PI * SkewTol / 180.0_dp
 
     ! Given the inverse permutation compute the initial number of
@@ -6127,7 +6134,7 @@ END SUBROUTINE GetMaxDefs
       DO ind=1,BMesh1 % NumberOfBulkElements
         
         Element => BMesh1 % Elements(ind)        
-        EdgeMap => LGetEdgeMap( Element % TYPE % ElementCode / 100)
+        EdgeMap => GetEdgeMap( Element % TYPE % ElementCode / 100)
 
         Indexes => Element % NodeIndexes
 
@@ -6332,7 +6339,7 @@ END SUBROUTINE GetMaxDefs
             ymaxm = MAXVAL( NodesM % y(1:n) ) 
             
             ! Ok, we have found a candicate face that will probably have some hits       
-            EdgeMapM => LGetEdgeMap( ElementM % TYPE % ElementCode / 100)        
+            EdgeMapM => GetEdgeMap( ElementM % TYPE % ElementCode / 100)        
             
             ! Go through combinations of edges and find the edges for which the 
             ! indexes are the same. 
@@ -7128,8 +7135,8 @@ END SUBROUTINE GetMaxDefs
 
 
       ! Identify center nodes for axial projectors since at the origin the angle
-      ! is impossible to determin. Instead for the origin the angle is the average
-      ! of the other angles in the element. 
+      ! is impossible to determine. Instead for the origin the angle is the average
+      ! of the other angles in the element.
       CenterI = 0
       CenterIM = 0
       CenterJ = 0
@@ -7239,7 +7246,7 @@ END SUBROUTINE GetMaxDefs
         END IF ! Naxial > 1
 
         ! If we have full angle eliminate the discontinuity of the angle
-        ! since we like to do the mapping using continuous coorinates. 
+        ! since we like to do the mapping using continuous coordinates.
         IF( FullCircle ) THEN
           LeftCircle = ( ALL( ABS( Alpha(1:ne) ) > ArcCoeff * 90.0_dp ) )
           IF( LeftCircle ) THEN
@@ -8627,8 +8634,8 @@ END SUBROUTINE GetMaxDefs
 
 
 !---------------------------------------------------------------------------
-!> Create a Galerkin projector related to discontinous interface.
-!> This uses the information stored when the discontinuous interface 
+!> Create a Galerkin projector related to discontinuous interface.
+!> This uses the information stored when the discontinuous interface
 !> was first coined. This enables simple one-to-one mapping. Integration
 !> weight is used for the nodel projector to allow physical jump conditions.
 !> For the edge dofs there is no such jumps and hence the projector uses
@@ -8828,7 +8835,7 @@ END SUBROUTINE GetMaxDefs
           CYCLE
         END IF
 
-        OldMap => LGetEdgeMap( OldFace % TYPE % ElementCode / 100)
+        OldMap => GetEdgeMap( OldFace % TYPE % ElementCode / 100)
 
         DO i = 1,OldFace % TYPE % NumberOfEdges          
           e1 = OldFace % EdgeIndexes(i)
@@ -9052,17 +9059,17 @@ END SUBROUTINE GetMaxDefs
           CYCLE
         END IF
 
-        OldFace => Find_Face( Left, Element )
+        OldFace => Find_Face( Mesh, Left, Element )
         nn = SIZE(Element % NodeIndexes)
         Indexes(1:nn) = Element % NodeIndexes
         Element % NodeIndexes = NodePerm(Indexes(1:nn)) + NoOrigNodes
-        NewFace => Find_Face( Right, Element )
+        NewFace => Find_Face( Mesh, Right, Element )
         Element % NodeIndexes = Indexes(1:nn)
  
         ParentFound = ParentFound + 1
 
-        OldMap => LGetEdgeMap( OldFace % TYPE % ElementCode / 100 )
-        NewMap => LGetEdgeMap( NewFace % TYPE % ElementCode / 100 )
+        OldMap => GetEdgeMap( OldFace % TYPE % ElementCode / 100 )
+        NewMap => GetEdgeMap( NewFace % TYPE % ElementCode / 100 )
 
         IntegStuff = GaussPoints( oldface )
         DO it = 1,IntegStuff % n
@@ -9471,10 +9478,10 @@ END SUBROUTINE GetMaxDefs
       CALL TangentDirections( Normal,Tangent1,Tangent2 )
     END IF
 
-    ! Go trough master (k=1) and target mesh (k=2)
+    ! Go through master (k=1) and target mesh (k=2)
     !--------------------------------------------
     DO k=1,2
-     
+
       ! Potentially the projector may be set to rotate by just adding an offset 
       ! to the angle. This may depende on time etc. 
       IF( k == 1 ) THEN
@@ -9785,8 +9792,8 @@ END SUBROUTINE GetMaxDefs
       CALL Info('AxialInterfaceMeshes',&
           'Assuming axial interface to have z-axis the normal!',Level=8)
     END IF
-    
-    ! Go trough master (k=1) and target mesh (k=2)
+
+    ! Go through master (k=1) and target mesh (k=2)
     !--------------------------------------------
     FullCircle = .FALSE.
 
@@ -9915,11 +9922,11 @@ END SUBROUTINE GetMaxDefs
 
     ! We choose degrees as they are more intuitive
     rad2deg = 180.0_dp / PI
-    
-    ! Go trough master (k=1) and target mesh (k=2)
+
+    ! Go through master (k=1) and target mesh (k=2)
     !--------------------------------------------
     DO k=1,2
-     
+
       IF( k == 1 ) THEN
         PMesh => BMesh1
       ELSE
@@ -9928,7 +9935,7 @@ END SUBROUTINE GetMaxDefs
 
       x2_min = HUGE( x2_min )
       x2_max = -HUGE( x2_max )
-
+      
       ! Loop over all nodes
       !----------------------------------------------------------------------------
       DO i=1,PMesh % NumberOfNodes
@@ -9942,6 +9949,8 @@ END SUBROUTINE GetMaxDefs
         phi = rad2deg * ATAN2( x(2), x(1)  )
         z = x(3)
 
+        !PRINT *,'interface node:',k,i,r,phi,x(1:2)
+        
         PMesh % Nodes % x(i) = r
         PMesh % Nodes % y(i) = z
         PMesh % Nodes % z(i) = 0.0_dp
@@ -9969,10 +9978,10 @@ END SUBROUTINE GetMaxDefs
 
       IF( k == 1 ) THEN
         CALL Info('RadialInterfaceMeshes',&
-            'Transformed extrema for this boundary (phi,r,z)',Level=8)
+            'Transformed extrema for this boundary (r,phi,z)',Level=8)
       ELSE IF( k == 2 ) THEN
         CALL Info('RadialInterfaceMeshes',&
-            'Transformed extrema for target boundary (phi,r,z)',Level=8)
+            'Transformed extrema for target boundary (r,phi,z)',Level=8)
       END IF
 
       DO i=1,3
@@ -10005,7 +10014,7 @@ END SUBROUTINE GetMaxDefs
     ! Some pieces of the code cannot work with 1D meshes, this choice is ok for all steps
     Bmesh1 % MeshDim = 2
     Bmesh2 % MeshDim = 2      
-
+    
   END SUBROUTINE RadialInterfaceMeshes
 !------------------------------------------------------------------------------
 
@@ -10672,7 +10681,7 @@ END SUBROUTINE GetMaxDefs
     ! There are tailored projectors for simplified interfaces
     !-------------------------------------------------------------
 
-    ! Stride projector is obsolite and has been eliminated. 
+    ! Stride projector is obsolete and has been eliminated.
     IF( ListGetLogical( BC,'Stride Projector',GotIt) ) THEN
       CALL ListAddLogical( BC,'Level Projector',.TRUE.)
       CALL ListAddLogical( BC,'Level Projector Strong',.TRUE.)
@@ -10729,10 +10738,10 @@ END SUBROUTINE GetMaxDefs
     END IF
 
 
-    ! If the interface is rotational move to (phi,z) plane and alter the phi coordinate 
-    ! so that the meshes coinside. 
-    ! Otherwise make the two meshes to coinside using rotation, translation &
-    ! scaling. 
+    ! If the interface is rotational move to (phi,z) plane and alter the phi coordinate
+    ! so that the meshes coincide.
+    ! Otherwise make the two meshes to coincide using rotation, translation &
+    ! scaling.
     !---------------------------------------------------------------------------------
     Radius = 1.0_dp
     FullCircle = .FALSE.
@@ -10947,43 +10956,74 @@ END SUBROUTINE GetMaxDefs
 !> Note that the 3rd algorithm involves iterative solution of the nodal
 !> positions and is therefore not bullet-proof.
 !------------------------------------------------------------------------------
-  SUBROUTINE UnitSegmentDivision( w, n )
+  SUBROUTINE UnitSegmentDivision( w, n, ExtList )
     REAL(KIND=dp), ALLOCATABLE :: w(:)
     INTEGER :: n
+    TYPE(ValueList_t), POINTER, OPTIONAL :: ExtList
     !---------------------------------------------------------------
     INTEGER :: i,J,iter,maxiter
-    REAL(KIND=dp) :: q,h1,hn,minhn,err_eps,err,xn
+    REAL(KIND=dp) :: q,r,h1,hn,minhn,err_eps,err,xn
     REAL(KIND=dp), ALLOCATABLE :: wold(:),h(:)
     LOGICAL :: Found, GotRatio
     TYPE(Nodes_t) :: Nodes
+    TYPE(ValueList_t), POINTER :: ParList
     
-    ! Linear distribution and an initial guess for the generic case
-    !---------------------------------------------------------------
-
+    IF( PRESENT( ExtList ) ) THEN
+      ParList => ExtList
+    ELSE
+      ParList => CurrentModel % Simulation
+    END IF
+    
     ! Geometric division
     !---------------------------------------------------------------
-    q = ListGetConstReal(CurrentModel % Simulation,'Extruded Mesh Ratio',GotRatio)
+    q = ListGetConstReal( ParList,'Extruded Mesh Ratio',GotRatio)
+    IF( GotRatio ) THEN
+      IF( ( ABS(ABS(q)-1.0_dp) < 1.0e-6 ) .OR. (q < 0.0_dp .AND. n <= 2) ) THEN
+        CALL Info('UnitSegmentDivision','Assuming linear division as mesh ratio is close to one!')
+        GotRatio = .FALSE.
+      END IF
+    END IF
+
     IF( GotRatio ) THEN
       CALL Info('UnitSegmentDivision','Creating geometric division',Level=5)
 
-      h1 = (1-q**(1.0_dp/(n-1)))/(1-q)
-      w(0) = 0.0_dp
-      hn = h1;
-      DO i=1,n-1
-        w(i) = w(i-1) + hn;
-        hn = hn * ( q**(1.0_dp/(n-1)) )
-      END DO
-      w(n) = 1.0_dp
-
-
+      IF( q > 0.0_dp ) THEN      
+        r = q**(1.0_dp/(n-1))
+        h1 = (1-r)/(1-r**n)
+        w(0) = 0.0_dp
+        DO i=1,n-1
+          w(i) = h1 * (1-r**i)/(1-r)
+        END DO
+        w(n) = 1.0_dp
+      ELSE
+        q = -q
+        IF(MODULO(n,2) == 0) THEN
+          r = q**(1.0_dp/(n/2-1))
+          h1 = 0.5*(1-r)/(1-r**(n/2))
+        ELSE 
+          r = q**(1.0_dp/((n-1)/2))
+          h1 = 0.5 / ( (1-r**((n+1)/2))/(1-r) - 0.5 * r**((n-1)/2))
+        END IF
+        
+        w(0) = 0.0_dp
+        DO i=1,n
+          IF( i <= n/2 ) THEN
+            w(i) = h1 * (1-r**i)/(1-r)
+          ELSE
+            w(i) = 1.0_dp -  h1 * (1-r**(n-i))/(1-r)
+          END IF
+        END DO
+        w(n) = 1.0_dp
+      END IF
+            
     ! Generic division given by a function
     !-----------------------------------------------------------------------
-    ELSE IF( ListCheckPresent( CurrentModel % Simulation,'Extruded Mesh Density') ) THEN
+    ELSE IF( ListCheckPresent( ParList,'Extruded Mesh Density') ) THEN
 
       CALL Info('UnitSegmentDivision','Creating functional division',Level=5)
 
-      ! Initial guess is an even distribtion
-      DO i=0,n     
+      ! Initial guess is an even distribution
+      DO i=0,n
         w(i) = i/(1._dp * n)
       END DO
 
@@ -11008,7 +11048,7 @@ END SUBROUTINE GetMaxDefs
         DO i=1,n
           xn = (w(i)+w(i-1))/2.0_dp
           minhn = MIN( minhn, w(i)-w(i-1) )
-          h(i) = ListGetFun( CurrentModel % Simulation,'Extruded Mesh Density', xn )
+          h(i) = ListGetFun( ParList,'Extruded Mesh Density', xn )
           IF( h(i) < EPSILON( h(i) ) ) THEN
             CALL Fatal('UnitSegmentDivision','Given value for h(i) was negative!')
           END IF
@@ -11056,7 +11096,6 @@ END SUBROUTINE GetMaxDefs
       CALL Info('UnitSegmentDivision', Message, Level=9 )
     END DO
 
-
   END SUBROUTINE UnitSegmentDivision
 !------------------------------------------------------------------------------
 
@@ -11081,7 +11120,8 @@ END SUBROUTINE GetMaxDefs
          max_bclayer
     TYPE(ParallelInfo_t), POINTER :: PI_in, PI_out
     INTEGER :: nnodes,gnodes,lnodes,gelements,ierr,istat
-    LOGICAL :: isParallel, Found, NeedEdges, PreserveBaseline, PreserveEdges
+    LOGICAL :: isParallel, Found, NeedEdges, PreserveBaseline, PreserveEdges, &
+        Rotational, Rotate2Pi
     REAL(KIND=dp)::w,CurrCoord
     REAL(KIND=dp), POINTER :: ActiveCoord(:)
     REAL(KIND=dp), ALLOCATABLE :: Wtable(:,:),Wtable_in(:),MinCoord(:),MaxCoord(:)
@@ -11186,6 +11226,14 @@ END SUBROUTINE GetMaxDefs
     END IF
 
 
+!    Rotate2Pi = .FALSE.
+!    Rotational = ListGetLogical( CurrentModel % Simulation,'Extruded Mesh Rotational',Found )    
+!    IF( Rotational ) THEN
+!      Rotate2Pi = ( ABS(ABS( MaxCoord-MinCoord ) - 2*PI) < 1.0e-3*PI )
+!      IF( Rotate2Pi ) CALL Info('MeshExtrude','Perfoming full 2Pi rotation',Level=6)
+!    END IF
+
+    
     cnt=0
     starti = 0
     currentlevel = 0
@@ -11197,6 +11245,7 @@ END SUBROUTINE GetMaxDefs
         CurrCoord = w * MaxCoord(blk) + (1-w) * MinCoord(blk)
 
         DO j=1,Mesh_in % NumberOfNodes
+
 
           cnt = cnt + 1
 
@@ -11229,6 +11278,23 @@ END SUBROUTINE GetMaxDefs
     WRITE( Message,'(A,I10)') 'total levels in extruded mesh:',alllevels
     CALL INFO('MeshExtrude',Message,Level=3)
 
+    
+    IF( Rotational ) THEN
+      BLOCK
+        REAL(KIND=DP) :: x,y,z,r        
+        DO i=1,cnt          
+          x = Mesh_out % Nodes % x(i)
+          y = Mesh_out % Nodes % y(i)
+          z = Mesh_out % Nodes % z(i)
+
+          Mesh_out % Nodes % x(i) = COS(z) * x
+          Mesh_out % Nodes % y(i) = SIN(z) * x
+          Mesh_out % Nodes % z(i) = y
+        END DO
+      END BLOCK
+    END IF
+    
+    
     ! Count 101 elements:
     ! (these require an extra layer)
     ! -------------------
@@ -11261,6 +11327,16 @@ END SUBROUTINE GetMaxDefs
       CALL MPI_ALLREDUCE(j,max_body,1, &
            MPI_INTEGER,MPI_MAX,ELMER_COMM_WORLD,ierr)
     END IF
+
+
+    ! inquire total number of needed 
+    !IF( Rotate2Pi ) THEN
+    !  totalnumberofelements = n*(in_levels+1) + cnt101
+    !ELSE
+    !  totalnumberofelements = n*(in_levels+3) + cnt101
+    !END IF
+
+
     ! Generate volume bulk elements:
     ! ------------------------------
 
@@ -11543,6 +11619,9 @@ END SUBROUTINE GetMaxDefs
     WRITE( Message,'(A,I0)') 'Number of new BCs for layers: ',max_body
     CALL Info('ExtrudeMesh',Message,Level=8)
 
+
+    ! Add start and finish planes except if we have a full rotational symmetry
+!    IF( .NOT. Rotate2Pi ) THEN
 
     ! Add bottom boundary:
     ! --------------------
@@ -12346,7 +12425,7 @@ CONTAINS
              HashPtr => HashPtr % Next
           END DO
 
-!         Exisiting edge, update structures:
+!         Existing edge, update structures:
 !         ----------------------------------
           IF ( Found ) THEN
              Element % EdgeIndexes(k) = Edge
@@ -12479,29 +12558,29 @@ CONTAINS
 
     Masked = PRESENT(BulkMask)
 
-    TetraFaceMap(1,:) = (/ 1, 2, 3, 5, 6, 7 /)
-    TetraFaceMap(2,:) = (/ 1, 2, 4, 5, 9, 8 /)
-    TetraFaceMap(3,:) = (/ 2, 3, 4, 6, 10, 9 /)
-    TetraFaceMap(4,:) = (/ 3, 1, 4, 7, 8,10 /)
+    TetraFaceMap(1,:) = [ 1, 2, 3, 5, 6, 7 ]
+    TetraFaceMap(2,:) = [ 1, 2, 4, 5, 9, 8 ]
+    TetraFaceMap(3,:) = [ 2, 3, 4, 6, 10, 9 ]
+    TetraFaceMap(4,:) = [ 3, 1, 4, 7, 8,10 ]
 
-    WedgeFaceMap(1,:) = (/ 1, 2, 3, 7, 8, 9, -1, -1 /)
-    WedgeFaceMap(2,:) = (/ 4, 5, 6, 10, 11, 12, -1, -1 /)
-    WedgeFaceMap(3,:) = (/ 1, 2, 5, 4, 7, 14, 10, 13 /)
-    WedgeFaceMap(4,:) = (/ 3, 2, 5, 6, 8, 14, 11, 15 /)
-    WedgeFaceMap(5,:) = (/ 3, 1, 4, 6, 9, 13, 12, 15 /)
+    WedgeFaceMap(1,:) = [ 1, 2, 3, 7, 8, 9, -1, -1 ]
+    WedgeFaceMap(2,:) = [ 4, 5, 6, 10, 11, 12, -1, -1 ]
+    WedgeFaceMap(3,:) = [ 1, 2, 5, 4, 7, 14, 10, 13 ]
+    WedgeFaceMap(4,:) = [ 3, 2, 5, 6, 8, 14, 11, 15 ]
+    WedgeFaceMap(5,:) = [ 3, 1, 4, 6, 9, 13, 12, 15 ]
 
-    PyramidFaceMap(1,:) = (/ 1, 2, 3, 4,  6,  7,  8,  9 /)
-    PyramidFaceMap(2,:) = (/ 1, 2, 5, 6, 11, 10, -1, -1 /)
-    PyramidFaceMap(3,:) = (/ 2, 3, 5, 7, 12, 11, -1, -1 /)
-    PyramidFaceMap(4,:) = (/ 3, 4, 5, 8, 13, 12, -1, -1 /)
-    PyramidFaceMap(5,:) = (/ 4, 1, 5, 9, 10, 13, -1, -1 /)
+    PyramidFaceMap(1,:) = [ 1, 2, 3, 4,  6,  7,  8,  9 ]
+    PyramidFaceMap(2,:) = [ 1, 2, 5, 6, 11, 10, -1, -1 ]
+    PyramidFaceMap(3,:) = [ 2, 3, 5, 7, 12, 11, -1, -1 ]
+    PyramidFaceMap(4,:) = [ 3, 4, 5, 8, 13, 12, -1, -1 ]
+    PyramidFaceMap(5,:) = [ 4, 1, 5, 9, 10, 13, -1, -1 ]
 
-    BrickFaceMap(1,:) = (/ 1, 2, 3, 4,  9, 10, 11, 12, 25 /)
-    BrickFaceMap(2,:) = (/ 5, 6, 7, 8, 17, 18, 19, 20, 26 /)
-    BrickFaceMap(3,:) = (/ 1, 2, 6, 5,  9, 14, 17, 13, 21 /)
-    BrickFaceMap(4,:) = (/ 2, 3, 7, 6, 10, 15, 18, 14, 22 /)
-    BrickFaceMap(5,:) = (/ 3, 4, 8, 7, 11, 16, 19, 15, 23 /)
-    BrickFaceMap(6,:) = (/ 4, 1, 5, 8, 12, 13, 20, 16, 24 /)
+    BrickFaceMap(1,:) = [ 1, 2, 3, 4,  9, 10, 11, 12, 25 ]
+    BrickFaceMap(2,:) = [ 5, 6, 7, 8, 17, 18, 19, 20, 26 ]
+    BrickFaceMap(3,:) = [ 1, 2, 6, 5,  9, 14, 17, 13, 21 ]
+    BrickFaceMap(4,:) = [ 2, 3, 7, 6, 10, 15, 18, 14, 22 ]
+    BrickFaceMap(5,:) = [ 3, 4, 8, 7, 11, 16, 19, 15, 23 ]
+    BrickFaceMap(6,:) = [ 4, 1, 5, 8, 12, 13, 20, 16, 24 ]
 
 !
 !   Initialize:
@@ -12632,9 +12711,9 @@ CONTAINS
              HashPtr => HashPtr % Next
           END DO
 
-!         Exisiting face, update structures:
+!         Existing face, update structures:
 !         ----------------------------------
-          IF ( Found ) THEN       
+          IF ( Found ) THEN
              Element % FaceIndexes(k) = Face
              Faces(Face) % BoundaryInfo % Right => Element
           ELSE
@@ -12808,73 +12887,73 @@ CONTAINS
 
     CALL Info('FindMeshEdges3D','Finding mesh edges in 3D mesh',Level=12)
 
-    TetraFaceMap(1,:) = (/ 1, 2, 3, 5, 6, 7 /)
-    TetraFaceMap(2,:) = (/ 1, 2, 4, 5, 9, 8 /)
-    TetraFaceMap(3,:) = (/ 2, 3, 4, 6,10, 9 /)
-    TetraFaceMap(4,:) = (/ 3, 1, 4, 7, 8,10 /)
+    TetraFaceMap(1,:) = [ 1, 2, 3, 5, 6, 7 ]
+    TetraFaceMap(2,:) = [ 1, 2, 4, 5, 9, 8 ]
+    TetraFaceMap(3,:) = [ 2, 3, 4, 6,10, 9 ]
+    TetraFaceMap(4,:) = [ 3, 1, 4, 7, 8,10 ]
 
-    TetraFaceEdgeMap(1,:) = (/ 1,2,3 /)
-    TetraFaceEdgeMap(2,:) = (/ 1,5,4 /)
-    TetraFaceEdgeMap(3,:) = (/ 2,6,5 /)
-    TetraFaceEdgeMap(4,:) = (/ 3,4,6 /)
+    TetraFaceEdgeMap(1,:) = [ 1,2,3 ]
+    TetraFaceEdgeMap(2,:) = [ 1,5,4 ]
+    TetraFaceEdgeMap(3,:) = [ 2,6,5 ]
+    TetraFaceEdgeMap(4,:) = [ 3,4,6 ]
 
-    TetraEdgeMap(1,:) = (/ 1,2,5 /)
-    TetraEdgeMap(2,:) = (/ 2,3,6 /)
-    TetraEdgeMap(3,:) = (/ 3,1,7 /)
-    TetraEdgeMap(4,:) = (/ 1,4,8 /)
-    TetraEdgeMap(5,:) = (/ 2,4,9 /)
-    TetraEdgeMap(6,:) = (/ 3,4,10 /)
+    TetraEdgeMap(1,:) = [ 1,2,5 ]
+    TetraEdgeMap(2,:) = [ 2,3,6 ]
+    TetraEdgeMap(3,:) = [ 3,1,7 ]
+    TetraEdgeMap(4,:) = [ 1,4,8 ]
+    TetraEdgeMap(5,:) = [ 2,4,9 ]
+    TetraEdgeMap(6,:) = [ 3,4,10 ]
 
-    PyramidEdgeMap(1,:) = (/ 1,2,1 /)
-    PyramidEdgeMap(2,:) = (/ 2,3,1 /)
-    PyramidEdgeMap(3,:) = (/ 3,4,1 /)
-    PyramidEdgeMap(4,:) = (/ 4,1,1 /)
-    PyramidEdgeMap(5,:) = (/ 1,5,1 /)
-    PyramidEdgeMap(6,:) = (/ 2,5,1 /)
-    PyramidEdgeMap(7,:) = (/ 3,5,1 /)
-    PyramidEdgeMap(8,:) = (/ 4,5,1 /)
+    PyramidEdgeMap(1,:) = [ 1,2,1 ]
+    PyramidEdgeMap(2,:) = [ 2,3,1 ]
+    PyramidEdgeMap(3,:) = [ 3,4,1 ]
+    PyramidEdgeMap(4,:) = [ 4,1,1 ]
+    PyramidEdgeMap(5,:) = [ 1,5,1 ]
+    PyramidEdgeMap(6,:) = [ 2,5,1 ]
+    PyramidEdgeMap(7,:) = [ 3,5,1 ]
+    PyramidEdgeMap(8,:) = [ 4,5,1 ]
 
-    PyramidFaceEdgeMap(1,:) = (/ 1,2,3,4 /)
-    PyramidFaceEdgeMap(2,:) = (/ 1,6,5,0 /)
-    PyramidFaceEdgeMap(3,:) = (/ 2,7,6,0 /)
-    PyramidFaceEdgeMap(4,:) = (/ 3,8,7,0 /)
-    PyramidFaceEdgeMap(5,:) = (/ 4,5,8,0 /)
+    PyramidFaceEdgeMap(1,:) = [ 1,2,3,4 ]
+    PyramidFaceEdgeMap(2,:) = [ 1,6,5,0 ]
+    PyramidFaceEdgeMap(3,:) = [ 2,7,6,0 ]
+    PyramidFaceEdgeMap(4,:) = [ 3,8,7,0 ]
+    PyramidFaceEdgeMap(5,:) = [ 4,5,8,0 ]
 
-    WedgeEdgeMap(1,:) = (/ 1, 2, 1 /)
-    WedgeEdgeMap(2,:) = (/ 2, 3, 1 /)
-    WedgeEdgeMap(3,:) = (/ 1, 3, 1 /)
-    WedgeEdgeMap(4,:) = (/ 4, 5, 1 /)
-    WedgeEdgeMap(5,:) = (/ 5, 6, 1 /)
-    WedgeEdgeMap(6,:) = (/ 6, 4, 1 /)
-    WedgeEdgeMap(7,:) = (/ 1, 4, 1 /)
-    WedgeEdgeMap(8,:) = (/ 2, 5, 1 /)
-    WedgeEdgeMap(9,:) = (/ 3, 6, 1 /)
+    WedgeEdgeMap(1,:) = [ 1, 2, 1 ]
+    WedgeEdgeMap(2,:) = [ 2, 3, 1 ]
+    WedgeEdgeMap(3,:) = [ 1, 3, 1 ]
+    WedgeEdgeMap(4,:) = [ 4, 5, 1 ]
+    WedgeEdgeMap(5,:) = [ 5, 6, 1 ]
+    WedgeEdgeMap(6,:) = [ 6, 4, 1 ]
+    WedgeEdgeMap(7,:) = [ 1, 4, 1 ]
+    WedgeEdgeMap(8,:) = [ 2, 5, 1 ]
+    WedgeEdgeMap(9,:) = [ 3, 6, 1 ]
 
-    WedgeFaceEdgeMap(1,:) = (/ 1,2,3,0 /)
-    WedgeFaceEdgeMap(2,:) = (/ 4,5,6,0 /)
-    WedgeFaceEdgeMap(3,:) = (/ 1,8,4,7 /)
-    WedgeFaceEdgeMap(4,:) = (/ 2,9,5,8 /)
-    WedgeFaceEdgeMap(5,:) = (/ 3,7,6,9 /)
+    WedgeFaceEdgeMap(1,:) = [ 1,2,3,0 ]
+    WedgeFaceEdgeMap(2,:) = [ 4,5,6,0 ]
+    WedgeFaceEdgeMap(3,:) = [ 1,8,4,7 ]
+    WedgeFaceEdgeMap(4,:) = [ 2,9,5,8 ]
+    WedgeFaceEdgeMap(5,:) = [ 3,7,6,9 ]
 
-    BrickEdgeMap(1,:) = (/ 1, 2,  9 /)
-    BrickEdgeMap(2,:) = (/ 2, 3,  10 /)
-    BrickEdgeMap(3,:) = (/ 4, 3,  11 /)
-    BrickEdgeMap(4,:) = (/ 1, 4,  12 /)
-    BrickEdgeMap(5,:) = (/ 5, 6,  13 /)
-    BrickEdgeMap(6,:) = (/ 6, 7,  14 /)
-    BrickEdgeMap(7,:) = (/ 8, 7,  15 /)
-    BrickEdgeMap(8,:) = (/ 5, 8,  16 /)
-    BrickEdgeMap(9,:) = (/ 1, 5,  17 /)
-    BrickEdgeMap(10,:) = (/ 2, 6, 18 /)
-    BrickEdgeMap(11,:) = (/ 3, 7, 19 /)
-    BrickEdgeMap(12,:) = (/ 4, 8, 20 /)
+    BrickEdgeMap(1,:) = [ 1, 2,  9 ]
+    BrickEdgeMap(2,:) = [ 2, 3,  10 ]
+    BrickEdgeMap(3,:) = [ 4, 3,  11 ]
+    BrickEdgeMap(4,:) = [ 1, 4,  12 ]
+    BrickEdgeMap(5,:) = [ 5, 6,  13 ]
+    BrickEdgeMap(6,:) = [ 6, 7,  14 ]
+    BrickEdgeMap(7,:) = [ 8, 7,  15 ]
+    BrickEdgeMap(8,:) = [ 5, 8,  16 ]
+    BrickEdgeMap(9,:) = [ 1, 5,  17 ]
+    BrickEdgeMap(10,:) = [ 2, 6, 18 ]
+    BrickEdgeMap(11,:) = [ 3, 7, 19 ]
+    BrickEdgeMap(12,:) = [ 4, 8, 20 ]
 
-    BrickFaceEdgeMap(1,:) = (/ 1,2,3,4   /)
-    BrickFaceEdgeMap(2,:) = (/ 5,6,7,8   /)    
-    BrickFaceEdgeMap(3,:) = (/ 1,10,5,9  /)
-    BrickFaceEdgeMap(4,:) = (/ 2,11,6,10 /)
-    BrickFaceEdgeMap(5,:) = (/ 3,12,7,11 /)
-    BrickFaceEdgeMap(6,:) = (/ 4,9,8,12  /)
+    BrickFaceEdgeMap(1,:) = [ 1,2,3,4   ]
+    BrickFaceEdgeMap(2,:) = [ 5,6,7,8   ]    
+    BrickFaceEdgeMap(3,:) = [ 1,10,5,9  ]
+    BrickFaceEdgeMap(4,:) = [ 2,11,6,10 ]
+    BrickFaceEdgeMap(5,:) = [ 3,12,7,11 ]
+    BrickFaceEdgeMap(6,:) = [ 4,9,8,12  ]
 
 !
 !   Initialize:
@@ -15262,7 +15341,7 @@ CONTAINS
 !      nodes, hence the reorder array:
 !      -------------------------------------------
        CALL AllocateVector( Reorder, NewMesh % NumberOfNodes )
-       Reorder = (/ (i, i=1,NewMesh % NumberOfNodes) /)
+       Reorder = [ (i, i=1,NewMesh % NumberOfNodes) ]
 
        k = NewMesh % Nodes % NumberOfNodes - Mesh % Nodes % NumberOfNodes
 
@@ -15667,10 +15746,10 @@ CONTAINS
     face = getTetraFaceMap(3)
     globalFace(1:3) = Tetra % NodeIndexes(face)
     ! Rotate face until last local index is max global
-    DO 
-       ! Chech if last node matches global max node
+    DO
+       ! Check if last node matches global max node
        IF (globalMax == globalFace(3)) EXIT
-       
+
        globalFace(1:3) = CSHIFT(globalFace,1)
     END DO
     ! Assign new local numbering
@@ -16619,10 +16698,10 @@ CONTAINS
     CALL Info('DetectExtrudedStructure',Message,Level=9)
     IF( Rounds == 0 ) THEN
       CALL Info('DetectExtrudedStructure','Try to increase value for > Dot Product Tolerance < ')
-      CALL Fatal('DetectExtrudedStructure','Zero rounds implies unsuccesfull operation')
+      CALL Fatal('DetectExtrudedStructure','Zero rounds implies unsuccessful operation')
     END IF
 
-    ! Compute the number of layers. The Rounds above may in some cases 
+    ! Compute the number of layers. The Rounds above may in some cases
     ! be too small. Here just one layer is used to determine the number
     ! of layers to save some time.
     !------------------------------------------------------------------
@@ -17151,7 +17230,7 @@ CONTAINS
     CALL Info('DetectExtrudedElements',Message,Level=9)
     IF( Rounds == 0 ) THEN
       CALL Info('DetectExtrudedElements','Try to increase value for > Dot Product Tolerance < ')
-      CALL Fatal('DetectExtrudedElements','Zero rounds implies unsuccesfull operation')
+      CALL Fatal('DetectExtrudedElements','Zero rounds implies unsuccessful operation')
     END IF
 
 
@@ -18412,9 +18491,9 @@ CONTAINS
       PosMeasureIndex = 0
       NegMeasure = 0.0_dp
       NegMeasureIndex = 0
-      
-      
-      ! Choos the nodes within the cones in the given three directions
+
+
+      ! Choose the nodes within the cones in the given three directions
       !---------------------------------------------------------------
       DO i=1,Mesh % NumberOfNodes
         IF( ForbiddenNodes( i ) ) CYCLE
@@ -18645,9 +18724,12 @@ CONTAINS
 !--------------------------------------------------------------    
     Order = ListGetInteger( Params,'1D Element Order',Found,minv=1,maxv=2)
     NoElements = ListGetInteger( Params,'1D Number Of Elements',minv=1)
-    Length = ListGetConstReal( Params,'1D Mesh Length')    
-    ActiveDirection = ListGetInteger( Params,'1D Active Direction',minv=-3,maxv=3)
-    BodyId = ListGetInteger( Params,'1D Body Id',minv=1)
+    Length = ListGetConstReal( Params,'1D Mesh Length',Found)
+    IF(.NOT. Found) Length = 1.0_dp
+    ActiveDirection = ListGetInteger( Params,'1D Active Direction',Found,minv=-3,maxv=3)
+    IF(.NOT.Found) ActiveDirection = 1
+    BodyId = ListGetInteger( Params,'1D Body Id',Found,minv=1)
+    IF(.NOT. Found) BodyId = 1
     MeshName = ListGetString( Params,'1D Mesh Name',Found)
     IF(.NOT. Found) MeshName = '1d_mesh'
     
@@ -18661,7 +18743,7 @@ CONTAINS
     MeshVector( ABS( ActiveDirection ) ) = 1.0_dp
     IF( ActiveDirection < 0 ) MeshVector = -MeshVector
     MeshVector = MeshVector * Length
-
+    
 !   Define nodal coordinates
 !   -------------------------------
     CALL AllocateVector( Mesh % Nodes % x, NoNodes )
@@ -20228,7 +20310,7 @@ CONTAINS
      RETURN
    END IF
 
-   ! memorize the maximum number of parallel neigbours
+   ! memorize the maximum number of parallel neighbours
    maxnei = 0
    IF( ASSOCIATED( ParInfo % NeighbourList ) ) THEN
      DO i=1,n

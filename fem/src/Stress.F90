@@ -104,13 +104,17 @@ MODULE StressLocal
 
      REAL(KIND=dp), DIMENSION(:), POINTER :: U_Integ,V_Integ,W_Integ,S_Integ
 
-     LOGICAL :: stat, CSymmetry,NeedHeat, NeedStress, NeedHarmonic, &
-         NeedPreStress, ActiveGeometricStiffness
+     LOGICAL :: stat, CSymmetry, NeedHeat, NeedStress, NeedHarmonic, &
+         NeedPreStress, ActiveGeometricStiffness, GPA
      TYPE(ValueHandle_t), SAVE :: BetaIP_h, EIP_h, nuIP_h, Load_h(4), Load_h_im(4)
+
+     TYPE(ValueList_t), POINTER :: BF
+   
+     REAL(KIND=dp) :: GPA_Coeff(n)
 
      TYPE(Mesh_t), POINTER :: Mesh
      INTEGER :: ndim
-     LOGICAL :: Found, Incompressible, FirstTime = .TRUE.
+     LOGICAL :: Found, Incompressible,  MaxwellMaterial, FirstTime = .TRUE.
      REAL(KIND=dp) :: Pres, Pres0
      REAL(KIND=dp) :: PSOL(4,32), SOL(4,32), ShearModulus, Viscosity, PrevStress(3,3)
      CHARACTER :: DimensionString
@@ -167,12 +171,23 @@ MODULE StressLocal
 
      IF (NeedMass) &
           NeedMass = ANY( NodalDensity(1:n) /= 0.0d0 )       
-     NeedMass = NeedMass .OR. ANY( NodalDamping(1:n) /= 0.0d0 )
+     NeedMass = NeedMass .OR. ANY( NodalDamping(1:n) /= 0.0d0 ) .OR. RayleighDamping
 
      NeedHeat = ANY( NodalTemperature(1:n) /= 0.0d0 )
      IF (.NOT.EvaluateLoadAtIP) NeedHarmonic = ANY( LOAD_im(:,1:n) /= 0.0d0 ) 
      NeedPreStress = ANY( NodalPreStrain(1:6,1:n) /= 0.0d0 ) 
      NeedPreStress = NeedPreStress .OR. ANY( NodalPreStress(1:6,1:n) /= 0.0d0 ) 
+
+
+     BF => GetBodyForce()
+     GPA = .FALSE.
+     IF(ASSOCIATED(BF)) THEN
+        GPA = GetLogical(BF, 'Gravitational Prestress Advection', Found )
+       IF ( GPA ) THEN
+         GPA_Coeff(1:n) = GetReal( BF, 'GPA Coeff', Found )
+       END IF
+     END IF
+
 
      !      ! Integration stuff:
      ! ------------------  
@@ -186,8 +201,13 @@ MODULE StressLocal
      N_Integ =  IntegStuff % n
 
      Mesh => GetMesh()
-     ve_stress => variableget( Mesh % Variables, 've_stress' )
-     IF( ASSOCIATED(ve_Stress) ) THEN
+     MaxwellMaterial = GetLogical( GetMaterial(), 'Maxwell material', Found )
+     IF( MaxwellMaterial ) THEN
+       ve_stress => variableget( Mesh % Variables, 've_stress' )
+       IF(.NOT.ASSOCIATED(ve_stress)) THEN
+         CALL Fatal( 'StressCompose', '"Maxwell material" set, but no storage space for stresses present?' )
+       END IF
+
        i = Element % ElementIndex
        j = ve_stress % Perm( i+1 ) - ve_stress % Perm ( i )
        IF( IntegStuff % n /= j ) THEN
@@ -417,7 +437,7 @@ MODULE StressLocal
          END SELECT
        END IF
 
-       IF(ASSOCIATED(ve_stress)) THEN
+       IF(MaxwellMaterial) THEN
          Viscosity = SUM( NodalViscosity(1:n) * Basis(1:n) )
          xPhi = ViscoElasticLoad( ve_stress, t, StressLoad )
          NeedPreStress = .TRUE.
@@ -528,7 +548,12 @@ MODULE StressLocal
                 A(i,ndim) = A(i,ndim) - Basis(q) * dBasisdx(p,i)
                 A(ndim,i) = A(ndim,i) - dBasisdx(q,i) * Basis(p)
              END DO
-a(ndim,ndim) = 1.d-5 * basis(q) * basis(p)
+           END IF
+ 
+           IF( GPA ) THEN
+             DO i=1,dim
+               A(i,dim) = A(i,dim) + SUM(GPA_Coeff(1:n)*Basis(1:n))*dBasisdx(q,i)*Basis(p)
+             END DO
            END IF
 
            !
@@ -635,9 +660,9 @@ a(ndim,ndim) = 1.d-5 * basis(q) * basis(p)
       END DO
     END IF
 
-    DAMP  = ( DAMP  + TRANSPOSE(DAMP) )  / 2.0d0
-    MASS  = ( MASS  + TRANSPOSE(MASS) )  / 2.0d0
-    STIFF = ( STIFF + TRANSPOSE(STIFF) ) / 2.0d0
+    DAMP  = ( DAMP  + TRANSPOSE(DAMP) )  / 2.0_dp
+    MASS  = ( MASS  + TRANSPOSE(MASS) )  / 2.0_dp
+    STIFF = ( STIFF + TRANSPOSE(STIFF) ) / 2.0_dp
 
     IF( RayleighDamping ) THEN
         DAMP = RayleighAlpha(1) * MASS + RayleighBeta(1) * STIFF
@@ -661,21 +686,20 @@ CONTAINS
          NodalHeatExpansion, NodalTemperature, Isotropic,CSymmetry,PlaneStress,   &
          PSOL,Basis,dBasisdx,Nodes,dim,n,ntot, .FALSE. )
 
-    ShearModulus = Young / (2* (1.0d0 + Poisson))
-
-    xPhi = 1._dp / ( 1 + ShearModulus / Viscosity * GetTimeStepSize() )
-    i = dim**2*(ve_stress % perm(Element % ElementIndex) + ip - 1)
-    PrevStress(1:dim,1:dim) = RESHAPE( ve_stress % values(i+1:i+dim**2), [dim,dim] )
-
     IF(Incompressible) THEN
+      ShearModulus = Young / 3
       Pres  = SUM( Basis(1:n) * SOL(ndim,1:n) )
       Pres0 = SUM( Basis(1:n) * (SOL(ndim,1:n) - PSOL(ndim,1:n)) )
     ELSE
       Pres = 0._dp; Pres0 = 0._dp
+      ShearModulus = Young / (2*(1+Poisson))
     END IF
 
-    PrevStress = xPhi * (StressTensor + PrevStress + Pres0 * Ident) - Pres * Ident
+    xPhi = 1._dp / ( 1 + ShearModulus / Viscosity * GetTimeStepSize() )
 
+    i = dim**2*(ve_stress % perm(Element % ElementIndex) + ip - 1)
+    PrevStress(1:dim,1:dim) = RESHAPE( ve_stress % values(i+1:i+dim**2), [dim,dim] )
+    PrevStress = xPhi * (StressTensor + PrevStress + Pres0 * Ident) - Pres * Ident
     ve_stress % values(i+1:i+dim**2) = RESHAPE( PrevStress(1:dim,1:dim), [dim**2] )
 
     StressTensor  = 0._dp
@@ -1007,9 +1031,9 @@ CONTAINS
                     Tangent(3), Tangent2(3), Vect(3), Vect2(3), Stress(3,3), Tf(3,3)
    REAL(KIND=dp), POINTER :: U_Integ(:),V_Integ(:),W_Integ(:),S_Integ(:)
 
-   INTEGER :: i,j,k,l,q,p,t,ii,jj,kk,dim,N_Integ
+   INTEGER :: i,j,k,l,q,p,t,ii,jj,kk,dim,N_Integ, ndim
 
-   LOGICAL :: stat, Csymm
+   LOGICAL :: stat, Csymm, Incompressible
 
    TYPE(GaussIntegrationPoints_t), TARGET :: IntegStuff
 !------------------------------------------------------------------------------
@@ -1017,6 +1041,13 @@ CONTAINS
    dim = CoordinateSystemDimension()
    Csymm = CurrentCoordinateSystem() == AxisSymmetric .OR. &
            CurrentCoordinateSystem() == CylindricSymmetric
+
+   Incompressible = GetLogical( GetSolverParams(), 'Incompressible', stat )
+   IF (Incompressible) THEN
+     ndim = dim+1
+   ELSE
+     ndim = dim
+   END IF
 
    STIFF = 0.0d0
    DAMP  = 0.0d0
@@ -1130,8 +1161,8 @@ CONTAINS
 
              DO ii = 1,dim
                DO jj = 1,dim
-                  k = (p-1)*dim + ii
-                  l = (q-1)*dim + jj
+                  k = (p-1)*ndim + ii
+                  l = (q-1)*ndim + jj
                   DAMP(k,l)  = DAMP(k,l) + s * DampCoeff(i) * &
                      Vect(ii) * Vect(jj) * Basis(q) * Basis(p)
 
@@ -1150,12 +1181,12 @@ CONTAINS
                END DO
              END DO
            ELSE
-              k = (p-1)*dim + i
-              l = (q-1)*dim + i
+              k = (p-1)*ndim + i
+              l = (q-1)*ndim + i
               DAMP(k,l)  = DAMP(k,l)  + s * DampCoeff(i) * Basis(q) * Basis(p)
 
               DO j=1,dim
-                l = (q-1)*dim + j
+                l = (q-1)*ndim + j
                 STIFF(k,l) = STIFF(k,l) + s * SpringCoeff(i,j) * Basis(q) * Basis(p)
               END DO
            END IF
@@ -1176,14 +1207,14 @@ CONTAINS
             END SELECT
 
             DO j=1,dim
-               k = (q-1)*dim + j
+               k = (q-1)*ndim + j
                FORCE(k) = FORCE(k) + &
                    s * Basis(q) * LoadAtIp(i) * Vect(j)
                FORCE_im(k) = FORCE_im(k) + &
                    s * Basis(q) * LoadAtIp_im(i) * Vect(j)
             END DO
          ELSE
-            k = (q-1)*dim + i
+            k = (q-1)*ndim + i
             FORCE(k) = FORCE(k) + s * Basis(q) * LoadAtIp(i)
             FORCE_im(k) = FORCE_im(k) + s * Basis(q) * LoadAtIp_im(i)
          END IF
@@ -1444,15 +1475,15 @@ CONTAINS
           S(2) = Strain(2,2)
           S(3) = Strain(3,3)
           S(4) = Strain(1,2)*2
-          i1(1:n) = (/ 1,2,3,1 /)
-          i2(1:n) = (/ 1,2,3,2 /)
+          i1(1:n) = [ 1,2,3,1 ]
+          i2(1:n) = [ 1,2,3,2 ]
         ELSE
           n = 3
           S(1) = Strain(1,1)
           S(2) = Strain(2,2)
           S(3) = Strain(1,2)*2
-          i1(1:n) = (/ 1,2,1 /)
-          i2(1:n) = (/ 1,2,2 /)
+          i1(1:n) = [ 1,2,1 ]
+          i2(1:n) = [ 1,2,2 ]
         END IF
      CASE(3)
         n = 6
@@ -1462,8 +1493,8 @@ CONTAINS
         S(4) = Strain(1,2)*2
         S(5) = Strain(2,3)*2
         S(6) = Strain(1,3)*2
-        i1(1:n) = (/ 1,2,3,1,2,1 /)
-        i2(1:n) = (/ 1,2,3,2,3,3 /)
+        i1(1:n) = [ 1,2,3,1,2,1 ]
+        i2(1:n) = [ 1,2,3,2,3,3 ]
      END SELECT
 
      DO i=1,n
@@ -1497,20 +1528,21 @@ CONTAINS
      CASE(2)
         IF ( CSymmetry ) THEN
           n = 4
-          i1(1:n) = (/ 1,2,3,1 /)
-          i2(1:n) = (/ 1,2,3,2 /)
+          i1(1:n) = [ 1,2,3,1 ]
+          i2(1:n) = [ 1,2,3,2 ]
         ELSE
           n = 3
-          i1(1:n) = (/ 1,2,1 /)
-          i2(1:n) = (/ 1,2,2 /)
+          i1(1:n) = [ 1,2,1 ]
+          i2(1:n) = [ 1,2,2 ]
         END IF
      CASE(3)
         n = 6
-        i1(1:n) = (/ 1,2,3,1,2,1 /)
-        i2(1:n) = (/ 1,2,3,2,3,3 /)
+        i1(1:n) = [ 1,2,3,1,2,1 ]
+        i2(1:n) = [ 1,2,3,2,3,3 ]
      END SELECT
 
 
+     V = 0
      DO i=1,n
        p = i1(i)
        q = i2(i)
@@ -1585,7 +1617,7 @@ CONTAINS
 
     REAL(KIND=dp) :: T(:,:), C(:), CT(3,3)
     INTEGER :: i,j,p,q,r,s
-    INTEGER :: I1(6) = (/ 1,2,3,1,2,1 /), I2(6) = (/ 1,2,3,2,3,3 /)
+    INTEGER :: I1(6) = [ 1,2,3,1,2,1 ], I2(6) = [ 1,2,3,2,3,3 ]
 
     !
     ! Convert stress vector to stress tensor:
@@ -1623,7 +1655,7 @@ CONTAINS
 
     REAL(KIND=dp) :: T(:,:), C(:), CT(3,3)
     INTEGER :: i,j,p,q,r,s
-    INTEGER :: I1(6) = (/ 1,2,3,1,2,1 /), I2(6) = (/ 1,2,3,2,3,3 /)
+    INTEGER :: I1(6) = [ 1,2,3,1,2,1 ], I2(6) = [ 1,2,3,2,3,3 ]
 
     !
     ! Convert strain vector to strain tensor:
@@ -1680,7 +1712,7 @@ CONTAINS
 
     REAL(KIND=dp) :: T(:,:), C(:,:), CT(2,2,2,2)
     INTEGER :: i,j,p,q,r,s
-    INTEGER :: I1(3) = (/ 1,2,1 /), I2(3) = (/ 1,2,2 /)
+    INTEGER :: I1(3) = [ 1,2,1 ], I2(3) = [ 1,2,2 ]
 
     !
     ! Convert C-matrix to 4 index elasticity tensor:
@@ -1728,7 +1760,7 @@ CONTAINS
 
     REAL(KIND=dp) :: T(:,:), C(:,:), CT(3,3,3,3)
     INTEGER :: i,j,p,q,r,s
-    INTEGER :: I1(6) = (/ 1,2,3,1,2,1 /), I2(6) = (/ 1,2,3,2,3,3 /)
+    INTEGER :: I1(6) = [ 1,2,3,1,2,1 ], I2(6) = [ 1,2,3,2,3,3 ]
 
     !
     ! Convert C-matrix to 4 index elasticity tensor:

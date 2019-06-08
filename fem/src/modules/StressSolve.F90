@@ -27,7 +27,7 @@
 ! *
 ! ******************************************************************************
 ! *
-! *  Authors: Juha Ruokolainen, Mikko Lyly, Peter R�back
+! *  Authors: Juha Ruokolainen, Mikko Lyly, Peter Råback
 ! *  Email:   Juha.Ruokolainen@csc.fi
 ! *  Web:     http://www.csc.fi/elmer
 ! *  Address: CSC - IT Center for Science Ltd.
@@ -54,8 +54,9 @@ SUBROUTINE StressSolver_Init( Model,Solver,dt,Transient )
     INTEGER :: dim,i
     TYPE(ValueList_t), POINTER :: SolverParams
     LOGICAL :: Found, CalculateStrains, CalcPrincipalAngle, CalcPrincipalAll, &
-         CalcStressAll, CalcVelocities
+         CalcStressAll, CalcVelocities, MaxwellMaterial
     CHARACTER :: DimensionString
+
 !------------------------------------------------------------------------------
     CALL Info( 'StressSolve_init', ' ', Level=1 )
     CALL Info( 'StressSolve_init', '--------------------------------------------------',Level=1 )
@@ -63,10 +64,33 @@ SUBROUTINE StressSolver_Init( Model,Solver,dt,Transient )
     CALL Info( 'StressSolve_init', '--------------------------------------------------',Level=1 )
     SolverParams => GetSolverParams()
     dim = CoordinateSystemDimension()
+
     IF ( .NOT. ListCheckPresent( SolverParams,'Variable') ) THEN
       CALL ListAddInteger( SolverParams, 'Variable DOFs', dim )
       CALL ListAddString( SolverParams, 'Variable', 'Displacement' )
     END IF
+
+    MaxwellMaterial = ListGetLogicalAnyMaterial(Model, 'Maxwell material')
+    IF (.NOT.MaxwellMaterial) THEN
+      MaxwellMaterial = GetLogical(SolverParams, 'Maxwell material', Found )
+      IF( MaxwellMaterial ) THEN
+        DO i=1,Model % NumberOfMaterials
+          CALL ListAddLogical( Model % Materials(i) % Values, 'Maxwell material', .TRUE.)
+        END DO
+      END IF
+    END IF
+
+    IF( MaxwellMaterial ) THEN
+      CALL ListAddString(SolverParams, 'Timestepping Method', 'BDF' )
+      CALL ListAddInteger(SolverParams, 'BDF Order', 2 )
+      CALL ListAddInteger(SolverParams, 'Time derivative Order', 1)
+      DO i=1,100
+        IF ( .NOT. ListCheckPresent( SolverParams, 'Exported Variable '//trim(i2s(i))) ) EXIT
+      END DO
+      CALL ListAddString( SolverParams, 'Exported Variable '//trim(i2s(i)), &
+              '-dofs '//trim(i2s(dim**2))//' -ip ve_stress' )
+    END IF
+    
     IF(.NOT.ListCheckPresent( SolverParams, 'Time derivative order') ) &
       CALL ListAddInteger( SolverParams, 'Time derivative order', 2 )
 
@@ -679,7 +703,7 @@ SUBROUTINE StressSolver_Init( Model,Solver,dt,Transient )
        !--------------------------------------------
        UNorm = DefaultSolve()
 
-       
+
        IF ( Transient .AND. .NOT. Refactorize .AND. dt /= Prevdt ) THEN
          Prevdt = dt
          CALL ListRemove( SolverParams, 'Linear System Free Factorization' )
@@ -1064,8 +1088,8 @@ CONTAINS
          Damping(1:n) = GetReal( Material, 'Damping', Found )
          RayleighDamping = GetLogical( Material, 'Rayleigh damping', Found )
          IF( RayleighDamping ) THEN
-           RayleighAlpha(1:N) = GetReal( Material, 'Rayleigh alpha', Found )
-           RayleighBeta(1:N) = GetReal( Material, 'Rayleigh beta', Found )
+           RayleighAlpha(1:N) = GetReal( Material, 'Rayleigh Damping alpha', Found )
+           RayleighBeta(1:N) = GetReal( Material, 'Rayleigh Damping beta', Found )
          ELSE
            RayleighAlpha = 0.0d0
            RayleighBeta = 0.0d0        
@@ -2178,11 +2202,11 @@ CONTAINS
 
          END DO
        END DO
-         
+
        IF(.NOT. FoundBoundary) THEN
-        CALL Fatal('StressSolve','Model lumping boudary must be defined')        
+        CALL Fatal('StressSolve','Model lumping boundary must be defined')
        END IF
-   
+
        IF(power == 1) Center(1:DIM) = Center(1:DIM) / Area
      END DO
 
