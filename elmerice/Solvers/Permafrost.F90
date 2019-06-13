@@ -1755,6 +1755,8 @@ SUBROUTINE PermafrostStressInvariant( Model,Solver,dt,TransientSimulation )
   ELSE
     CALL FATAL(SolverName, TRIM(StressVariableName)//' not found')
   END IF
+
+
   ! END IF
 
     
@@ -1764,11 +1766,18 @@ SUBROUTINE PermafrostStressInvariant( Model,Solver,dt,TransientSimulation )
   InvariantPerm => Solver % Variable % Perm
   InvariantPrev => Solver % Variable % PrevValues
 
-
+  InvariantVeloVar => VariableGet( Solver % Mesh % Variables, TRIM(VariableName) // " Velocity" )
+  IF ( ASSOCIATED(InvariantVeloVar)) THEN
+    InvariantVeloPerm => InvariantVeloVar % Perm
+    InvariantVelo =>InvariantVeloVar  % Values
+  ELSE
+    CALL FATAL(SolverName, TRIM(VariableName) // " Velocity"//' not found')
+  END IF
   !!!!!!!!!!!!!
   !!!! VariableAdd for TRIM(VariableName) // " Velocity"
   
   activenodes = 0
+  InvariantVelo = 0.0_dp  
   DO I = 1,Solver % Mesh % Nodes % NumberOfNodes
     IF (InvariantPerm(I) == 0) CYCLE
     IF (PressurePerm(I) == 0) THEN
@@ -1776,11 +1785,16 @@ SUBROUTINE PermafrostStressInvariant( Model,Solver,dt,TransientSimulation )
       CALL FATAL(SolverName,Message)
     END IF
     IF ( UpdatePrev ) THEN
-      InvariantPrev(InvariantPerm(I),1) =  Invariant(InvariantPerm(I))
+      InvariantPrev(InvariantPerm(I),1) =  Invariant(InvariantPerm(I))  
     END IF
     !PRINT *,"PermafrostStressInvariant",Pressure(PressurePerm(I))
     Invariant(InvariantPerm(I)) = &
          GetFirstInvariant(StressVariable,Pressure(PressurePerm(I)),(StressVariablePerm(I)-1)*StressVariableDOFs,DIM)
+    InvariantVelo(InvariantVeloPerm(I)) = &
+         (Invariant(InvariantPerm(I))-InvariantPrev(InvariantPerm(I),1))/dt
+    !IF (InvariantVelo(InvariantVeloPerm(I)) /= 0.0_dp) THEN
+    !  PRINT *, "InvariantVelo:", InvariantVelo(InvariantVeloPerm(I)), Invariant(InvariantPerm(I)), InvariantPrev(InvariantPerm(I),1)
+    !END IF
     activenodes = activenodes + 1
     AverageInvariant = AverageInvariant + Invariant(InvariantPerm(I))
     IF (FirstTime) THEN
@@ -4288,6 +4302,7 @@ SUBROUTINE PorosityInit(Model, Solver, Timestep, TransientSimulation )
     END IF
 
     CurrentNode = PorosityPerm(i)
+    !PRINT *,CurrentNode, i
     PorosityValues(CurrentNode) = CurrentRockMaterial % eta0(RockMaterialID)
   END DO
 END SUBROUTINE PorosityInit
