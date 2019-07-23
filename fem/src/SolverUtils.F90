@@ -1534,14 +1534,14 @@ CONTAINS
      INTEGER :: i,j,k,n,t,ind,dofs, dof, bf, bc, Upper, Removed, Added, &
          ElemFirst, ElemLast, totsize, i2, j2, ind2
      REAL(KIND=dp), POINTER :: FieldValues(:), LoadValues(:), &
-         ElemLimit(:),ElemInit(:), ElemActive(:)
+         ElemLimit(:),ElemInit(:), ElemActive(:),ElemPassive(:),ElemOffset(:)
      REAL(KIND=dp) :: LimitSign, EqSign, ValEps, LoadEps, val
      INTEGER, POINTER :: FieldPerm(:), NodeIndexes(:)
-     LOGICAL :: Found,AnyLimitBC, AnyLimitBF, GotInit, GotActive
+     LOGICAL :: Found,AnyLimitBC, AnyLimitBF, GotInit, GotActive,GotPassive,GotOffset
      LOGICAL, ALLOCATABLE :: LimitDone(:)
      LOGICAL, POINTER :: LimitActive(:)
      TYPE(ValueList_t), POINTER :: Params, Entity
-     CHARACTER(LEN=MAX_NAME_LEN) :: Name, LimitName, InitName, ActiveName
+     CHARACTER(LEN=MAX_NAME_LEN) :: Name, LimitName, InitName, ActiveName, PassiveName, OffsetName
      LOGICAL, ALLOCATABLE :: InterfaceDof(:)
      INTEGER :: ConservativeAfterIters, NonlinIter, CoupledIter, DownStreamDirection
      LOGICAL :: Conservative, ConservativeAdd, ConservativeRemove, &
@@ -1592,27 +1592,34 @@ CONTAINS
      dofs = Var % Dofs
      Params => Solver % Values
 
-     ConservativeAdd = .FALSE.
-     ConservativeAfterIters = ListGetInteger(Params,&
-         'Apply Limiter Conservative Add After Iterations',Conservative ) 
-     IF( Conservative ) THEN
-       ConservativeAdd = ( ConservativeAfterIters < NonlinIter )
-       IF( ConservativeAdd ) THEN
-         CALL Info('DetermineSoftLimiter','Adding dofs in conservative fashion',Level=8)
+
+     ConservativeAdd = ListGetLogicalReal( Params,&
+         'Apply Limiter Conservative Add Condition',Conservative)
+     IF( .NOT. Conservative ) THEN
+       ConservativeAfterIters = ListGetInteger(Params,&
+           'Apply Limiter Conservative Add After Iterations',Conservative ) 
+       IF( Conservative ) THEN
+         ConservativeAdd = ( ConservativeAfterIters < NonlinIter )
+         IF( ConservativeAdd ) THEN
+           CALL Info('DetermineSoftLimiter','Adding dofs in conservative fashion',Level=8)
+         END IF
        END IF
      END IF
 
-     ConservativeRemove = .FALSE.
-     ConservativeAfterIters = ListGetInteger(Params,&
-         'Apply Limiter Conservative Remove After Iterations',Found )      
-     IF( Found ) THEN
-       Conservative = .TRUE.  
-       ConservativeRemove = ( ConservativeAfterIters < NonlinIter )
-       IF( ConservativeRemove ) THEN
-         CALL Info('DetermineSoftLimiter','Removing dofs in conservative fashion',Level=8)
+     ConservativeRemove = ListGetLogicalReal( Params,&
+         'Apply Limiter Conservative Remove Condition',Conservative)
+     IF( .NOT. Conservative ) THEN
+       ConservativeAfterIters = ListGetInteger(Params,&
+           'Apply Limiter Conservative Remove After Iterations',Found )      
+       IF( Found ) THEN
+         Conservative = .TRUE.  
+         ConservativeRemove = ( ConservativeAfterIters < NonlinIter )
+         IF( ConservativeRemove ) THEN
+           CALL Info('DetermineSoftLimiter','Removing dofs in conservative fashion',Level=8)
+         END IF
        END IF
      END IF
-
+       
      DownStreamRemove = ListGetLogical( Params,'Apply Limiter Remove Downstream',Found)
      IF( DownStreamRemove ) THEN
        CALL Info('DetermineSoftLimiter','Removing contact dofs only in downstream',Level=8)      
@@ -1669,10 +1676,14 @@ CONTAINS
            LimitName = TRIM(name)//' Lower Limit'           
            InitName = TRIM(name)//' Lower Initial'
            ActiveName = TRIM(name)//' Lower Active'
+           PassiveName = TRIM(name)//' Lower Passive'
+           OffsetName = TRIM(name)//' Lower Load Offset'
          ELSE
            LimitName = TRIM(name)//' Upper Limit' 
            InitName = TRIM(name)//' Upper Initial' 
            ActiveName = TRIM(name)//' Upper Active' 
+           PassiveName = TRIM(name)//' Upper Passive' 
+           OffsetName = TRIM(name)//' Upper Load Offset'
          END IF
 
          AnyLimitBC = ListCheckPresentAnyBC( Model, LimitName )
@@ -1699,7 +1710,8 @@ CONTAINS
          
          IF(.NOT. ALLOCATED( LimitDone) ) THEN
            n = Model % MaxElementNodes
-           ALLOCATE( LimitDone( totsize ), ElemLimit(n), ElemInit(n), ElemActive(n) )
+           ALLOCATE( LimitDone( totsize ), ElemLimit(n), ElemInit(n), ElemActive(n), &
+               ElemPassive(n), ElemOffset(n) )
            LimitDone = .FALSE.
          END IF
 
@@ -1723,7 +1735,8 @@ CONTAINS
          Added = 0        
          IF(.NOT. ALLOCATED( LimitDone) ) THEN
            n = Model % MaxElementNodes
-           ALLOCATE( LimitDone( totsize ), ElemLimit(n), ElemInit(n), ElemActive(n) )
+           ALLOCATE( LimitDone( totsize ), ElemLimit(n), ElemInit(n), ElemActive(n), &
+               ElemPassive(n), ElemOffset(n) )
            LimitDone = .FALSE.
          END IF
 
@@ -1764,8 +1777,8 @@ CONTAINS
                  InitName, n, NodeIndexes, GotInit)
              ElemActive(1:n) = ListGetReal( Entity, &
                  ActiveName, n, NodeIndexes, GotActive)
-             IF(.NOT. ( GotInit .OR. GotActive ) ) CYCLE
 
+             IF(.NOT. ( GotInit .OR. GotActive ) ) CYCLE
 
              DO i=1,n
                j = FieldPerm( NodeIndexes(i) )
@@ -1891,6 +1904,44 @@ CONTAINS
                    END DO
                  END DO
                END BLOCK
+             ELSE IF( Solver % Variable % Dofs == 1 ) THEN
+               BLOCK
+                 TYPE(Matrix_t), POINTER :: A
+                 INTEGER :: n1,n2,nlim
+
+                 A => Solver % Matrix 
+                 nlim = 1
+                 
+                 DO i=1,A % NumberOfRows
+                   n1 = 0
+                   DO j=A % Rows(i), A % Rows(i+1)-1
+                     k = A % Cols(j)
+                     IF( k == i ) CYCLE
+                     IF( .NOT. ( XOR(LimitActive(k), LimitActive(i)) ) ) n1 = n1 + 1
+                   END DO
+
+                   IF( n1 == 0 ) THEN
+                     PRINT *,'Reverting isolated node:',i,LimitActive(i)
+                     LimitActive(i) = .NOT. LimitActive(i)
+                   END IF
+                 END DO
+                   
+                 DO i=1,A % NumberOfRows
+                   n1 = 0; n2 = 0
+                   DO j=A % Rows(i), A % Rows(i+1)-1
+                     k = A % Cols(j)
+                     IF( k == i ) CYCLE
+                     IF( LimitActive(k) ) THEN
+                       n1 = n1 + 1
+                     ELSE
+                       n2 = n2 + 1
+                     END IF
+                   END DO
+                   IF( n1 >= nlim .AND. n2 >= nlim ) THEN
+                     InterfaceDof(i) = .TRUE.
+                   END IF
+                 END DO
+               END BLOCK
              ELSE
                ! This includes all interface dofs
                DO i=1,n
@@ -1912,8 +1963,15 @@ CONTAINS
              END IF
            END DO
 
+           n = COUNT( InterfaceDof )
            CALL Info('DetermineSoftLimiter',&
-               'Number of interface dofs: '//TRIM(I2S(COUNT(InterfaceDof))),Level=8)
+               'Number of interface dofs: '//TRIM(I2S(n)),Level=8)
+
+           ! We cannot be conservative if there are no initial interface dofs in the set!
+           IF( n == 0 ) THEN
+             ConservativeAdd = .FALSE.
+             ConservativeRemove = .FALSE.
+           END IF
          END IF
 
          IF( DownStreamRemove ) THEN
@@ -1956,13 +2014,31 @@ CONTAINS
            ElemActive(1:n) = ListGetReal( Entity, &
                ActiveName, n, NodeIndexes, GotActive)
 
+           ElemPassive(1:n) = ListGetReal( Entity, &
+               PassiveName, n, NodeIndexes, GotPassive)
+           
+           ElemOffset(1:n) = ListGetReal( Entity, &
+               OffsetName, n, NodeIndexes, GotOffset )
+           
            DO i=1,n
              j = FieldPerm( NodeIndexes(i) )
              IF( j == 0 ) CYCLE
              ind = Dofs * ( j - 1) + Dof
 
              IF( LimitDone(ind) ) CYCLE
+             LimitDone(ind) = .TRUE.             
              
+             ! In the conservative mode only release nodes from contact set 
+             ! when they are adjacent to dofs that previously was not in the set.
+             ! This means that set is released only at the boundaries. 
+             IF( ConservativeRemove ) THEN
+               IF( LimitActive(ind) .AND. .NOT. InterfaceDof( ind ) ) CYCLE
+             END IF
+
+             IF( ConservativeAdd ) THEN
+               IF( .NOT. LimitActive(ind) .AND. .NOT. InterfaceDof( ind ) ) CYCLE
+             END IF
+
              ! Go through the active set and free nodes with wrong sign in contact force
              !--------------------------------------------------------------------------       
              IF( GotActive .AND. ElemActive(i) > 0.0_dp ) THEN
@@ -1970,36 +2046,44 @@ CONTAINS
                  added = added + 1
                  LimitActive(ind) = .TRUE. 
                END IF
+               
+             ELSE IF( GotPassive .AND. ElemPassive(i) > 0.0_dp ) THEN
+               IF( LimitActive( ind ) ) THEN
+                 removed = removed + 1
+                 LimitActive(ind) = .FALSE. 
+               END IF
+
              ELSE IF( LimitActive( ind ) ) THEN
-               DoRemove = ( LimitSign * LoadValues(ind) > LimitSign * LoadEps ) 
+               DoRemove = ( LimitSign * ( LoadValues(ind) - ElemOffset(i) ) > LimitSign * LoadEps ) 
+
+               IF( ABS( ElemOffset(i) ) > 1.0e-15  ) THEN
+                 PRINT *,'remove with offset?:',DoRemove,ind,LoadValues(ind),ElemOffset(i),LoadEps
+               END IF
+               
                IF( DoRemove ) THEN
-                 ! In the conservative mode only release nodes from contact set 
-                 ! when they are adjacent to dofs that previously was not in the set.
-                 ! This means that set is released only at the boundaries. 
-                 IF( ConservativeRemove ) DoRemove = InterfaceDof( ind ) 
-                 IF( DoRemove ) THEN
-                   removed = removed + 1
-                   LimitActive(ind) = .FALSE.
-                   CYCLE
-                 END IF
+                 removed = removed + 1
+                 LimitActive(ind) = .FALSE.
+                 CYCLE
                END IF
              ELSE
                ! Go through the dofs that are beyond the contact surface.
                !-----------------------------------------------------------
-               val = Var % Values(ind) 
-               IF( Upper == 0 ) THEN
-                 DoAdd = ( val < ElemLimit(i) - ValEps )
+               IF( .FALSE. .AND. ABS( ElemOffset(i) ) > 1.0d-15 ) THEN
+                 DoAdd = ( LimitSign * ( LoadValues(ind) - ElemOffset(i) ) <= LimitSign * LoadEps ) 
+                 PRINT *,'add with offset?:',DoAdd,ind,LoadValues(ind),ElemOffset(i),LoadEps
                ELSE
-                 DoAdd = ( val > ElemLimit(i) + ValEps )
+                 val = Var % Values(ind) 
+                 IF( Upper == 0 ) THEN
+                   DoAdd = ( val < ElemLimit(i) - ValEps )
+                 ELSE
+                   DoAdd = ( val > ElemLimit(i) + ValEps )
+                 END IF
                END IF
-               
+                 
                IF( DoAdd ) THEN
-                 IF( ConservativeAdd ) DoAdd = InterfaceDof( ind ) 
-                 IF( DoAdd ) THEN
-                   IF( .NOT. LimitActive(ind) ) THEN
-                     added = added + 1
-                     LimitActive(ind) = .TRUE.
-                   END IF
+                 IF( .NOT. LimitActive(ind) ) THEN
+                   added = added + 1
+                   LimitActive(ind) = .TRUE.
                  END IF
                END IF
              END IF
@@ -2015,7 +2099,6 @@ CONTAINS
                END IF
              END IF
 
-             LimitDone(ind) = .TRUE.             
            END DO
          END DO
        END DO
@@ -2033,15 +2116,8 @@ CONTAINS
              //TRIM(GetVarName(Var))//': ',COUNT( LimitActive )
          CALL Info('DetermineSoftLimiter',Message,Level=5)
          
-         IF(added >= 0) THEN
-           WRITE(Message,'(A,I0,A)') 'Added ',added,' dofs to the set'
-           CALL Info('DetermineSoftLimiter',Message,Level=5)
-         END IF
-         
-         IF(removed >= 0) THEN
-           WRITE(Message,'(A,I0,A)') 'Removed ',removed,' dofs from the set'
-           CALL Info('DetermineSoftLimiter',Message,Level=5)
-         END IF
+         WRITE(Message,'(A,I0,A,I0A)') 'Added ',added,' removed ',removed,' dofs to the set'
+         CALL Info('DetermineSoftLimiter',Message,Level=5)
        END IF
      END DO
 
@@ -2072,7 +2148,7 @@ CONTAINS
      END IF
 
      IF( ALLOCATED( LimitDone ) ) THEN
-       DEALLOCATE( LimitDone, ElemLimit, ElemInit, ElemActive ) 
+       DEALLOCATE( LimitDone, ElemLimit, ElemInit, ElemActive, ElemPassive, ElemOffset ) 
      END IF
      
      IF( ALLOCATED( InterfaceDof ) ) THEN
@@ -2164,24 +2240,32 @@ CONTAINS
 
      !FirstTime = ( NonlinIter == 1 .AND. CoupledIter == 1 ) 
 
-     ConservativeAfterIters = ListGetInteger(Params,&
-         'Apply Limiter Conservative Add After Iterations',ConservativeAdd ) 
-     IF( ConservativeAdd ) THEN
-       IF( CoupledIter == 1 ) ConservativeAdd = ( ConservativeAfterIters < NonlinIter )
+     ConservativeAdd = ListGetLogicalReal( Params,&
+         'Apply Limiter Conservative Add Condition',Found)
+     IF( .NOT. ConservativeAdd ) THEN
+       ConservativeAfterIters = ListGetInteger(Params,&
+           'Apply Limiter Conservative Add After Iterations',ConservativeAdd ) 
        IF( ConservativeAdd ) THEN
-         CALL Info('DetermineContact','Adding dofs in conservative fashion',Level=8)
+         IF( CoupledIter == 1 ) ConservativeAdd = ( ConservativeAfterIters < NonlinIter )
+         IF( ConservativeAdd ) THEN
+           CALL Info('DetermineContact','Adding dofs in conservative fashion',Level=8)
+         END IF
        END IF
      END IF
 
-     ConservativeAfterIters = ListGetInteger(Params,&
-         'Apply Limiter Conservative Remove After Iterations',ConservativeRemove ) 
-     IF( ConservativeRemove ) THEN
-       IF( CoupledIter == 1 ) ConservativeRemove = ( ConservativeAfterIters < NonlinIter )
+     ConservativeRemove = ListGetLogicalReal( Params,&
+         'Apply Limiter Conservative Remove Condition',Found)
+     IF( .NOT. ConservativeRemove ) THEN
+       ConservativeAfterIters = ListGetInteger(Params,&
+           'Apply Limiter Conservative Remove After Iterations',ConservativeRemove ) 
        IF( ConservativeRemove ) THEN
-         CALL Info('DetermineContact','Removing dofs in conservative fashion',Level=8)
+         IF( CoupledIter == 1 ) ConservativeRemove = ( ConservativeAfterIters < NonlinIter )
+         IF( ConservativeRemove ) THEN
+           CALL Info('DetermineContact','Removing dofs in conservative fashion',Level=8)
+         END IF
        END IF
      END IF
-         
+       
      ResidualMode = ListGetLogical(Params,&
          'Linear System Residual Mode',Found )
 
@@ -2757,8 +2841,7 @@ CONTAINS
        IF(.NOT. ALLOCATED( InterfaceDof ) ) THEN
          ALLOCATE( InterfaceDof( SIZE(MortarBC % Active) ) )
        END IF
-       InterfaceDof = .FALSE. 
-
+       InterfaceDof = .FALSE.             
 
        DO elem=Mesh % NumberOfBulkElements + 1, &
            Mesh % NumberOfBulkElements + Mesh % NumberOfBoundaryElements
