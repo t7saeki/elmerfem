@@ -1944,13 +1944,15 @@ SUBROUTINE PermafrostHeatTransfer( Model,Solver,dt,TransientSimulation )
   CHARACTER(LEN=MAX_NAME_LEN) :: PressureName, PorosityName, SalinityName, GWfluxName, PhaseChangeModel,&
        ElementRockMaterialName,VarName, DepthName, XiAtIPName
   TYPE(ValueHandle_t) :: Load_h, Temperature_h, Pressure_h, Salinity_h, Porosity_h,&
-       PressureVelo_h, SalinityVelo_h, Vstar_h, Jgw_h, Depth_h
+       PressureVelo_h, SalinityVelo_h, Depth_h,&
+       Vstar1_h, Vstar2_h, Vstar3_h, Jgw1_h, Jgw2_h, Jgw3_h
 
   SAVE DIM,FirstTime,AllocationsDone,GivenGWFlux,DepthName,XiAtIPName,&
        CurrentRockMaterial,CurrentSoluteMaterial,CurrentSolventMaterial,NumberOfRockRecords,&
        ElementWiseRockMaterial,ComputeDt,DepthExists,&
        Load_h, Temperature_h, Pressure_h, Salinity_h, Porosity_h,&
-       PressureVelo_h, SalinityVelo_h, Vstar_h, Jgw_h, Depth_h
+       PressureVelo_h, SalinityVelo_h, Depth_h, &
+       Vstar1_h, Vstar2_h, Vstar3_h, Jgw1_h, Jgw2_h, Jgw3_h
   !------------------------------------------------------------------------------
   CALL Info( SolverName, '-------------------------------------',Level=1 )
   CALL Info( SolverName, 'Computing heat transfer              ',Level=1 )
@@ -1971,8 +1973,15 @@ SUBROUTINE PermafrostHeatTransfer( Model,Solver,dt,TransientSimulation )
     CALL ListInitElementKeyword( Load_h,'Body Force','Heat Source' )
 
     ! Handles to advection velocities
-    CALL ListInitElementKeyword( Vstar_h,'Material','Bedrock Velocity Variable' )
-    CALL ListInitElementKeyword( Jgw_h,'Material','Groundwater Flux Variable' )
+    CALL ListInitElementKeyword( Vstar1_h,'Material','Convection Velocity 1')
+    CALL ListInitElementKeyword( Vstar2_h,'Material','Convection Velocity 2')
+    IF (DIM > 2) &
+         CALL ListInitElementKeyword( Vstar3_h,'Material','Convection Velocity 3')
+    
+    CALL ListInitElementKeyword( Jgw1_h,'Material','Groundwater Flux 1' )
+    CALL ListInitElementKeyword( Jgw2_h,'Material','Groundwater Flux 2' )
+    IF (DIM > 2) &
+         CALL ListInitElementKeyword( Jgw3_h,'Material','Groundwater Flux 3' )
     
     ! Handles to other variables
     CALL ListInitElementKeyword( Depth_h, 'Material', 'Depth Variable' )
@@ -2226,11 +2235,14 @@ CONTAINS
       SalinityVeloAtIP = 0.0_dp
       SalinityVeloAtIP = ListGetElementReal( SalinityVelo_h, Basis, Element, Found, GaussPoint=t)
 
+      vstarAtIP = 0.0_dp
       ! bedrock deformation velocity at IP
-      vstarAtIP(1:3) = 0.0_dp !!! PLUG WITH HANDLE !!!
+      vstarAtIP(1) = ListGetElementReal( Vstar1_h, Basis, Element, Found, GaussPoint=t)
+      vstarAtIP(2) = ListGetElementReal( Vstar2_h, Basis, Element, Found, GaussPoint=t)
+      IF (DIM > 2) &
+           vstarAtIP(3) = ListGetElementReal( Vstar3_h, Basis, Element, Found, GaussPoint=t)
       
       !Materialproperties needed for computing Xi at IP
-
       rhowAtIP = rhow(CurrentSolventMaterial,T0,p0,TemperatureAtIP,PressureAtIP,ConstVal)
       rhoiAtIP = rhoi(CurrentSolventMaterial,T0,p0,TemperatureAtIP,PressureAtIP,ConstVal)!!      
       Xi0Tilde = GetXi0Tilde(CurrentRockMaterial,RockMaterialID,PorosityAtIP)
