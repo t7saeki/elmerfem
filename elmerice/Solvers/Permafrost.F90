@@ -583,10 +583,10 @@ CONTAINS
       rhogwPAtIP = rhogwP(rhowPAtIP,rhocPAtIP,XiAtIP(IPPerm),SalinityAtIP)
       rhogwTAtIP = rhogwT(rhowTAtIP,rhocTAtIP,XiAtIP(IPPerm),SalinityAtIP)
 
-      IF ((rhogwAtIP < 980.0_dp) .OR. (rhogwAtIP > 1250.0_dp)) THEN ! sanity check
-        PRINT *,"rhowAtIP:",rhowAtIP,XiAtIP(IPPerm),SalinityAtIP
-        STOP
-      END IF
+      !IF ((rhogwAtIP < 980.0_dp) .OR. (rhogwAtIP > 1250.0_dp)) THEN ! sanity check
+   !     PRINT *,"rhowgAtIP:",rhogwAtIP,XiAtIP(IPPerm),SalinityAtIP
+   !     STOP
+   !   END IF
 
       ! conductivities at IP
       mugwAtIP = mugw(CurrentSolventMaterial,CurrentSoluteMaterial,&
