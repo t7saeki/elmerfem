@@ -115,8 +115,9 @@ SUBROUTINE PermafrostGroundwaterFlow( Model,Solver,dt,TransientSimulation )
        ConstantPorosity=.FALSE., NoSalinity=.FALSE.,GivenGWFlux,ElementWiseRockMaterial, DummyLog=.FALSE.,&
        InitializeSteadyState=.FALSE., ActiveMassMatrix=.TRUE., ComputeDeformation=.FALSE.,DeformationExists=.FALSE.,&
        StressInvAllocationsDone=.FALSE.,StressInvDtAllocationsDone=.FALSE.,&
-       HydroGeo=.FALSE.,ComputeDt=.FALSE.,&
-       TemperatureTimeDerExists=.FALSE.,SalinityTimeDerExists=.FALSE., FluxOutput=.FALSE., OffsetDensity=.FALSE.
+       HydroGeo=.FALSE.,ComputeDt=.FALSE.,FluxOutput=.FALSE.,&
+       TemperatureTimeDerExists=.FALSE.,SalinityTimeDerExists=.FALSE., OffsetDensity=.FALSE.
+  CHARACTER :: DimensionString
   CHARACTER(LEN=MAX_NAME_LEN), ALLOCATABLE :: VariableBaseName(:)
   CHARACTER(LEN=MAX_NAME_LEN), PARAMETER :: SolverName='PermafrostGroundWaterFlow'
   CHARACTER(LEN=MAX_NAME_LEN) :: TemperatureName, PorosityName, SalinityName, StressInvName, &
@@ -127,7 +128,7 @@ SUBROUTINE PermafrostGroundwaterFlow( Model,Solver,dt,TransientSimulation )
   SAVE DIM,FirstTime,AllocationsDone,CurrentRockMaterial,CurrentSoluteMaterial,CurrentSolventMaterial,&
        NodalPorosity,NodalTemperature,NodalSalinity,NodalPressure,NodalStressInv, &
        NodalStressInvDt,NodalTemperatureDt,NodalDummyDt,NodalSalinityDt, &
-       DummyNodalGWflux, ElementWiseRockMaterial, ComputeDeformation, &
+       DummyNodalGWflux, ElementWiseRockMaterial, ComputeDeformation, FluxOutput,&
        StressInvAllocationsDone, StressInvDtAllocationsDone, OffsetDensity, &
        Load_h, Temperature_h, Pressure_h, Salinity_h, Porosity_h,&
        TemperatureDt_h, SalinityDt_h, StressInv_h, StressInvDt_h, &
@@ -161,7 +162,7 @@ SUBROUTINE PermafrostGroundwaterFlow( Model,Solver,dt,TransientSimulation )
   IF(.NOT. Found ) maxiter = 1
 
   ComputeDt = GetLogical(Params,'Compute Time Derivatives',Found)
-  FluxOutput = GetLogical(Params,'Groundwater Flux Output',Found)
+  !FluxOutput = GetLogical(Params,'Groundwater Flux Output',Found)
 
   
   ! solver variable
@@ -201,7 +202,25 @@ SUBROUTINE PermafrostGroundwaterFlow( Model,Solver,dt,TransientSimulation )
     END IF
   END IF
   
-
+  ! check, whether an output variable for groundwater flux exists
+  !--------------------------------------------------------------
+  IF (FirstTime) THEN
+    DO I=1,DIM
+      WRITE (DimensionString,'(I1)') I
+      DummyGWfluxVar => VariableGet( Solver % Mesh % Variables, 'Groundwater Flux '//TRIM(DimensionString))
+      IF (.NOT.ASSOCIATED(DummyGWfluxVar)) THEN
+        FluxOutput = .FALSE.
+      ELSE
+        FluxOutput = .TRUE.       
+      END IF
+      IF (.NOT.FluxOutput) EXIT
+    END DO
+    IF (FluxOutput) THEN
+      WRITE (Message,*) 'Groundwater flow will be written to: Groundwater Flux {1..',DIM,'}'
+      CALL INFO(SolverName,Message,Level=1)
+    END IF
+  END IF
+  
   ! Nonlinear iteration loop:
   !--------------------------
   DO iter=1,maxiter
@@ -268,7 +287,7 @@ SUBROUTINE PermafrostGroundwaterFlow( Model,Solver,dt,TransientSimulation )
       CALL LocalMatrixDarcy( Model, Element, t, N, ND+NB, Active,  &
            CurrentRockMaterial,CurrentSoluteMaterial,CurrentSolventMaterial,&
            PhaseChangeModel,ElementWiseRockMaterial, ActiveMassMatrix, &
-           ComputeDt,ComputeDeformation,HydroGeo, OffsetDensity)
+           ComputeDt,ComputeDeformation,HydroGeo, OffsetDensity,FluxOutput)
     END DO
     OffsetDensity = .FALSE. ! sure to not read after first time
     CALL DefaultFinishBulkAssembly()
@@ -304,7 +323,7 @@ CONTAINS
   SUBROUTINE LocalMatrixDarcy( Model, Element, ElementID, n, nd, NoElements,&
        CurrentRockMaterial, CurrentSoluteMaterial,CurrentSolventMaterial,&
        PhaseChangeModel, ElementWiseRockMaterial, ActiveMassMatrix,&
-       ComputeDt,ComputeDeformation,HydroGeo,OffsetDensity)
+       ComputeDt,ComputeDeformation,HydroGeo,OffsetDensity,FluxOutput)
     IMPLICIT NONE
     !------------------------------------------------------------------------------
     TYPE(Model_t) :: Model
@@ -313,7 +332,8 @@ CONTAINS
     TYPE(RockMaterial_t), POINTER :: CurrentRockMaterial
     TYPE(SoluteMaterial_t), POINTER :: CurrentSoluteMaterial
     TYPE(SolventMaterial_t), POINTER :: CurrentSolventMaterial
-    LOGICAL :: ElementWiseRockMaterial, ActiveMassMatrix,ComputeDt,ComputeDeformation,NoSalinity,HydroGeo,OffsetDensity
+    LOGICAL :: ElementWiseRockMaterial,ActiveMassMatrix,ComputeDt,&
+         ComputeDeformation,HydroGeo,OffsetDensity,FluxOutput
     CHARACTER(LEN=MAX_NAME_LEN) :: PhaseChangeModel
     !------------------------------------------------------------------------------
     REAL(KIND=dp) :: CgwppAtIP,CgwpTAtIP,CgwpYcAtIP,CgwpI1AtIP,KgwAtIP(3,3),KgwppAtIP(3,3),KgwpTAtIP(3,3),&
@@ -350,9 +370,10 @@ CONTAINS
     TYPE(Nodes_t) :: Nodes
     CHARACTER(LEN=MAX_NAME_LEN), PARAMETER :: SolverName='PermafrostGroundWaterFlow', &
          FunctionName='Permafrost (LocalMatrixDarcy)'
-    TYPE(Variable_t), POINTER :: XiAtIPVar, RhoOffsetAtIPVar
-    INTEGER, POINTER :: XiAtIPPerm(:), RhoOffsetAtIPPerm(:)
-    REAL(KIND=dp), POINTER :: XiAtIP(:), RhoOffsetAtIP(:)
+    CHARACTER :: DimensionString
+    TYPE(Variable_t), POINTER :: XiAtIPVar, RhoOffsetAtIPVar,GWfluxVar1,GWfluxVar2,GWfluxVar3
+    INTEGER, POINTER :: XiAtIPPerm(:), RhoOffsetAtIPPerm(:),GWfluxPerm(:)
+    REAL(KIND=dp), POINTER :: XiAtIP(:), RhoOffsetAtIP(:),GWFluxVal(:)
     
     SAVE Nodes, ConstantsRead, ConstVal, DIM, GasConstant, N0, DeltaT, T0, p0, eps, Gravity
     !------------------------------------------------------------------------------
@@ -367,7 +388,19 @@ CONTAINS
     END IF
     XiAtIPPerm => XiAtIPVar % Perm   
     XiAtIP => XiAtIPVar % Values
-    
+
+
+    IF (FluxOutput) THEN
+      GWfluxVar1 => VariableGet( Solver % Mesh % Variables, 'Groundwater Flux 1')
+      GWfluxPerm => GWfluxVar1 % Perm
+      GWfluxVar2 => VariableGet( Solver % Mesh % Variables, 'Groundwater Flux 2')
+      GWfluxVar2 % Perm = GWfluxPerm
+      IF (DIM == 3) THEN
+        GWfluxVar3 => VariableGet( Solver % Mesh % Variables, 'Groundwater Flux 3')
+        GWfluxVar3 % Perm = GWfluxPerm
+      END IF
+    END IF
+      
     CALL GetElementNodes( Nodes )
     MASS  = 0._dp
     STIFF = 0._dp
@@ -623,16 +656,26 @@ CONTAINS
       r12AtIP = GetR(CurrentSoluteMaterial,CurrentSolventMaterial,GasConstant,&
            rhowAtIP,rhocAtIP,XiAtIP(IPPerm),TemperatureAtIP,SalinityAtIP)
       DmAtIP = Dm(CurrentSoluteMaterial,N0,GasConstant,rhocAtIP,mugwAtIP,TemperatureAtIP)
-      IF (ConstantDispersion) THEN
-        KcAtIP = GetConstKC(DispersionCoefficient)
-      ELSE
+      
+      IF ( (.NOT.ConstantDispersion) .OR. FluxOutput) THEN
         JgwDAtIP = 0.0_dp
         JgwDAtIP = GetJgwD(KgwppAtIP,KgwpTAtIP,KgwAtIP,gradpAtIP,gradTAtIP,&
              Gravity,rhogwAtIP,DIM,CryogenicSuction)
-        KcAtIP = GetKc(CurrentRockMaterial,RockMaterialID,DmAtIP,XiAtIP(IPPerm),JgwDAtIP,PorosityAtIP)
+        !PRINT *, "JgwDAtIP", JgwDAtIP
+        IF (FluxOutput) THEN
+          GWfluxVar1 % Values(GWfluxPerm(ElementID) + t) = JgwDAtIP(1)
+          GWfluxVar2 % Values(GWfluxPerm(ElementID) + t) = JgwDAtIP(2)
+          IF (DIM == 3) GWfluxVar2 % Values(GWfluxPerm(ElementID) + t) = JgwDAtIP(2)
+        END IF
       END IF
+      
       JcFAtIP = 0._dp
-      IF (.NOT.NoSalinity) THEN        
+      IF (.NOT.NoSalinity) THEN  
+        IF (ConstantDispersion) THEN
+          KcAtIP = GetConstKC(DispersionCoefficient)
+        ELSE
+          KcAtIP = GetKc(CurrentRockMaterial,RockMaterialID,DmAtIP,XiAtIP(IPPerm),JgwDAtIP,PorosityAtIP)
+        END IF  
         fcAtIP = GetFc(rhocAtIP,rhowAtIP,Gravity,r12AtIP,XiTAtIP,XiPAtIP,XiAtIP(IPPerm),gradPAtIP,gradTAtIP)
         KcYcYcAtIP = GetKcYcYc(KcAtIP,r12AtIP)
         JcFAtIP = GetJcF(KcYcYcAtIP,KcAtIP,fcAtIP,gradYcAtIP,SalinityAtIP)        
@@ -663,14 +706,18 @@ CONTAINS
 
       ! composition of the matrix:
       ! -----------------------------------
+      ! this term can be switched off
+      ! time derivative (Cgwpp*dp/dt,v):
+      IF (ActiveMassMatrix) THEN
+        DO p=1,nd
+          DO q=1,nd
+            MASS(p,q) = MASS(p,q) + Weight * CgwppAtIP * Basis(q) * Basis(p)
+          END DO
+        END DO
+      END IF
+      
       DO p=1,nd
         DO q=1,nd
-          ! next term can be switched off
-          ! time derivative (Cgwpp*dp/dt,v):
-          ! ------------------------------
-          IF (ActiveMassMatrix) &
-               MASS(p,q) = MASS(p,q) + Weight * CgwppAtIP * Basis(q) * Basis(p) 
-
           ! advection term due to bedrock velocity (Cgwpp * (vstar.grad(u)),v)
           ! --------------------------------------------------------------------
           STIFF (p,q) = STIFF(p,q) + Weight * &
@@ -688,15 +735,21 @@ CONTAINS
           STIFF(p,q) = STIFF(p,q) + Weight * StiffPQ
         END DO
       END DO
+      
       ! body forces
       !--------------------------------------
       DO p=1,nd     
         FORCE(p) = FORCE(p) + Weight * rhogwAtIP *  SUM(fluxgAtIP(1:DIM)*dBasisdx(p,1:DIM))
+        FORCE(p) = FORCE(p) - &
+             Weight * Basis(p) * CurrentRockMaterial % etak(RockMaterialID) *&
+             (rhocAtIP - rhowAtIP)* SUM(JcFAtIP(1:DIM)*dBasisdx(p,1:DIM))
+        FORCE(1:nd) = FORCE(1:nd) + Weight * LoadAtIP * Basis(1:nd)
         IF (CryogenicSuction) &
              FORCE(p) = FORCE(p) + Weight * rhogwAtIP * SUM(fluxTAtIP(1:DIM)*dBasisdx(p,1:DIM))
         IF (ComputeDt) THEN
           FORCE(p) = FORCE(p) + Weight * CgwpTAtIP * Basis(p)* TemperatureDtAtIP !dT/dt + v* grad T
-          FORCE(p) = FORCE(p) + Weight * CgwpYcAtIP * Basis(p) * SalinityDtAtIP ! dyc/dt + v* grad yc
+          IF (.NOT. NoSalinity) &
+               FORCE(p) = FORCE(p) + Weight * CgwpYcAtIP * Basis(p) * SalinityDtAtIP ! dyc/dt + v* grad yc
         END IF
         IF (ComputeDeformation)  THEN       
           FORCE(p) = FORCE(p) &
@@ -704,11 +757,8 @@ CONTAINS
           !IF (GetTimeStep() > 2) &
           !     PRINT *,"CgwpI1AtIP:",CgwpI1AtIP,"NodalStressInvDt(1:N):",NodalStressInvDt(1:N)
         END IF
-        FORCE(p) = FORCE(p) - &
-             Weight * Basis(p) * CurrentRockMaterial % etak(RockMaterialID) *&
-             (rhocAtIP - rhowAtIP)* SUM(JcFAtIP(1:DIM)*dBasisdx(p,1:DIM))
+
       END DO
-      FORCE(1:nd) = FORCE(1:nd) + Weight * LoadAtIP * Basis(1:nd)
     END DO
 
     IF(TransientSimulation) CALL Default1stOrderTime(MASS,STIFF,FORCE)
@@ -1630,13 +1680,13 @@ SUBROUTINE PermafrostStressInvariant( Model,Solver,dt,TransientSimulation )
   CALL Info( SolverName, ' Computing  Permafrost Stress Invariant',Level=1 )
   CALL Info( SolverName, '-----------------------------------------',Level=1 )
 
-  DIM = CoordinateSystemDimension()
   SolverParams => GetSolverParams()
 
 
   IF (FirstTime) THEN
     CurrentTime=GetTimeStep()
     UpdatePrev = .FALSE.
+    DIM=CoordinateSystemDimension()
   ELSE
     IF (CurrentTime .NE. GetTimeStep()) THEN
       UpdatePrev = .TRUE.
@@ -1646,9 +1696,7 @@ SUBROUTINE PermafrostStressInvariant( Model,Solver,dt,TransientSimulation )
     END IF
   END IF
 
-  IF (FirstTime .OR. Model % Mesh % Changed) THEN
-    DIM = CoordinateSystemDimension()
-    
+  IF (FirstTime .OR. Model % Mesh % Changed) THEN  
     PressureName = ListGetString(SolverParams, &
        'Pressure Variable', Found )
     IF (.NOT.Found) THEN
@@ -1788,28 +1836,6 @@ SUBROUTINE PermafrostHeatTransfer_init( Model,Solver,dt,TransientSimulation )
     CALL ListAddString( SolverParams, NextFreeKeyword('Exported Variable',SolverParams),'-IP -nooutput -dofs 1 Xi' )
     CALL INFO(SolverName,'Added variable Xi',Level=1)
   END IF
-!!$  XiAtIPVar => VariableGet( Solver % Mesh % Variables, 'Xi')
-!!$  IF (.NOT.ASSOCIATED(XiAtIPVar)) THEN
-!!$    WRITE(Message,*) 'Variable Xi is not associated'
-!!$    CALL FATAL(SolverName,Message)
-!!$  END IF
-!!$  XiAtIPPerm => XiAtIPVar % Perm
-!!$  XiAtIp => XiAtIPVar % Values
-!!$  DO I=1,SIZE(XiAtIPPerm)
-!!$    IF (I> 0) &
-!!$         XiAtIp(I) = 1.0_dp
-!!$  END DO    
-  OutputFlux = GetLogical(SolverParams, 'Output Flux', Found)
-  IF (.NOT.Found) OutputFlux = .FALSE.
-  IF (OutputFlux) THEN
-    DO I = 1,CoordinateSystemDimension()
-      WRITE (DimensionString,'(I1)') I
-      CALL INFO(SolverName,'Output of element variable: Element Groundwater Flux '//TRIM(DimensionString),Level=1)
-      CALL ListAddString( SolverParams, NextFreeKeyword('Exported Variable',SolverParams),&
-           '-elem Element Groundwater Flux '//TRIM(DimensionString))
-    END DO   
-    !CALL INFO(SolverName,'Added variable "Element Groundwater Flux" of dimension '//TRIM(DimensionString),Level=1)
-  END IF
   
   ! Add linear system defaults: cg+diagonal
   IF(.NOT. ListCheckPresent(SolverParams,'Linear System Solver')) &
@@ -1846,7 +1872,7 @@ SUBROUTINE PermafrostHeatTransfer( Model,Solver,dt,TransientSimulation )
   TYPE(ValueList_t), POINTER :: Params, Material
   TYPE(Variable_t), POINTER :: TemperatureVar,PressureVar,PorosityVar,SalinityVar,&
        TemperatureDtVar, PressureDtVar, SalinityDtVar,&
-       GWfluxVar1,GWfluxVar2,GWfluxVar3,DepthVar
+       FluxAtIPVarDummy,DepthVar
   TYPE(RockMaterial_t), POINTER :: CurrentRockMaterial
   TYPE(SoluteMaterial_t), POINTER :: CurrentSoluteMaterial
   TYPE(SolventMaterial_t), POINTER :: CurrentSolventMaterial
@@ -1884,6 +1910,7 @@ SUBROUTINE PermafrostHeatTransfer( Model,Solver,dt,TransientSimulation )
   CALL Info( SolverName, '-------------------------------------',Level=1 )
 
   IF (FirstTime) THEN
+    DIM = CoordinateSystemDimension()
     ! Handles to other system variables
     CALL ListInitElementKeyword( Temperature_h, 'Material', 'Temperature Variable' )
     CALL ListInitElementKeyword( Pressure_h, 'Material', 'Pressure Variable' )
@@ -1940,6 +1967,7 @@ SUBROUTINE PermafrostHeatTransfer( Model,Solver,dt,TransientSimulation )
     END IF
   END IF
 
+  
   ! Nonlinear iteration loop:
   !--------------------------
   DO iter=1,maxiter
@@ -2060,15 +2088,15 @@ CONTAINS
     REAL(KIND=dp), POINTER :: gWork(:,:)
     INTEGER :: i,t,p,q,IPPerm,DIM, RockMaterialID, FluxDOFs
     LOGICAL :: Stat,Found, ConstantsRead=.FALSE.,ConstVal=.FALSE.,&
-         CryogenicSuction=.FALSE.,HydroGeo=.FALSE.,FluxOutput=.FALSE.
+         CryogenicSuction=.FALSE.,HydroGeo=.FALSE.
     TYPE(GaussIntegrationPoints_t) :: IP
     TYPE(ValueList_t), POINTER :: BodyForce, Material
     TYPE(Nodes_t) :: Nodes
     CHARACTER :: DimensionString
     CHARACTER(LEN=MAX_NAME_LEN) :: MaterialFileName
     CHARACTER(LEN=MAX_NAME_LEN), PARAMETER :: FunctionName='Permafrost(LocalMatrixHTEQ)'
-    TYPE(Variable_t), POINTER :: XiAtIPVar, FluxAtElemVar
-    INTEGER, POINTER :: XiAtIPPerm(:), FluxAtElemPerm(:)
+    TYPE(Variable_t), POINTER :: XiAtIPVar, FluxAtElemVar1, FluxAtElemVar2, FluxAtElemVar3
+    INTEGER, POINTER :: XiAtIPPerm(:), FluxAtElemPerm1(:),FluxAtElemPerm2(:),FluxAtElemPerm3(:)
     REAL(KIND=dp), POINTER :: XiAtIP(:), FluxAtElem(:)
     
     !------------------------------------------------------------------------------
@@ -2095,22 +2123,7 @@ CONTAINS
     XiAtIPPerm => XiAtIPVar % Perm
     XiAtIp => XiAtIPVar % Values
 
-    DO I=1,DIM
-      WRITE (DimensionString,'(I1)') I
-      FluxAtElemVar => VariableGet( Solver % Mesh % Variables, 'Element Groundwater Flux '//TRIM(DimensionString))
-      IF (.NOT.ASSOCIATED(FluxAtElemVar)) THEN
-        FluxOutput = .FALSE.
-      ELSE
-        FluxOutput = .TRUE.
-        FluxAtElemPerm => FluxAtElemVar % Perm
-        FluxAtElem => FluxAtElemVar % Values
-        !IF (FluxDOFs .NE. DIM) THEN
-        !  WRITE(Message,*) ' "Groundwater Flux" DOFs=',FluxDOFs,' differs from problem dimension=',DIM
-        !  CALL FATAL(FunctionName,Message)
-        !END IF
-        FluxAtElem(FluxAtElemPerm(ElementNo) + 1) = 0.0_dp        
-      END IF
-    END DO
+
     
     ! Get stuff from SIF Material section
     Material => GetMaterial(Element)
@@ -2228,22 +2241,16 @@ CONTAINS
            T0,TemperatureAtIP,ConstVal)
       cwAtIP   = cw(CurrentSolventMaterial,&
            T0,XiAtIP(IPPerm),TemperatureAtIP,SalinityAtIP,ConstVal)
-      !PRINT *,"cw",T0,TemperatureAtIP,SalinityAtIP,cw0,&
-      !     acw,bcw,acwl,bcwl
-      !PRINT *, "cwAtIP", cwAtIP, "cw0",cw0,"acw",acw,"bcw",bcw,"T0",T0,SalinityAtIP,TemperatureAtIP,PressureAtIP
       ciAtIP   = ci(CurrentSolventMaterial,&
            T0,TemperatureAtIP,ConstVal)
-      !ci(ci0,aci,T0,TemperatureAtIP,PressureAtIP)  !!
       ccAtIP   = cc(CurrentSoluteMaterial,&
            T0,TemperatureAtIP,SalinityAtIP,ConstVal)
-      !PRINT *,"HTEQ: cw,ci,cs,cc",cwAtIP,ciAtIP,csAtIP,ccAtIP
 
       ! latent heat
       hiAtIP = hi(CurrentSolventMaterial,&
            T0,TemperatureAtIP,ConstVal)
       hwAtIP = hw(CurrentSolventMaterial,&
            T0,XiAtIP(IPPerm),TemperatureAtIP,SalinityAtIP,ConstVal)
-      !IF ((TemperatureAtIP < 273.65) .AND. (TemperatureAtIP > 272.65)) PRINT *,"hw/hi/XiT/Xi",hwAtIP,hiAtIP,XiTAtIP,XiAtIP(IPPerm)
 
       ! heat conductivity at IP
       ksthAtIP = GetKalphath(CurrentRockMaterial % ks0th(RockMaterialID),&
@@ -2253,25 +2260,20 @@ CONTAINS
       kcthAtIP = GetKalphath(CurrentSoluteMaterial % kc0th,CurrentSoluteMaterial % bc,T0,TemperatureAtIP)
       KGTTAtIP = GetKGTT(ksthAtIP,kwthAtIP,kithAtIP,kcthAtIP,XiAtIP(IPPerm),&
            SalinityATIP,PorosityAtIP,meanfactor)
-      !IF (TemperatureAtIP > 419.00_dp) &
-      !     PRINT *, "HTEQ: KGTTAtIP",KGTTAtIP(1,1),KGTTAtIP(1,2),KGTTAtIP(2,2),KGTTAtIP(2,1),"ksthAtIP",ksthAtIP
 
       ! heat capacities at IP
       CGTTAtIP = &
            GetCGTT(XiAtIP(IPPerm),XiTAtIP,rhosAtIP,rhowAtIP,rhoiAtIP,rhocAtIP,&
            cwAtIP,ciAtIP,csAtIP,ccAtIP,hiAtIP,hwAtIP,&
            PorosityAtIP,SalinityAtIP)
-      !IF ((ElementNo == 23739) .AND. (t == 1)) &
-      !     PRINT *,"HTEQ:", CGTTAtIP, KGTTAtIP, TemperatureAtIP
-      !IF (TemperatureAtIP > 419.0_dp) PRINT *,"HTEQ: CGTTAtIP",CGTTAtIP,csAtIP,rhosAtIP,csAtIP*rhosAtIP
       CgwTTAtIP = GetCgwTT(rhowAtIP,rhocAtIP,cwAtIP,ccAtIP,XiAtIP(IPPerm),SalinityAtIP)
-      !IF (TemperatureAtIP > 419.0_dp) PRINT *,"HTEQ: CgwTTAtIP",CgwTTAtIP,rhowAtIP,rhocAtIP,cwAtIP,ccAtIP,SalinityAtIP
-      ! compute groundwater flux for advection term
 
+      ! compute groundwater flux for advection term
       CGTpAtIP = GetCGTp(rhoiAtIP,hiAtIP,hwAtIP,XiPAtIP,PorosityAtIP) !NEW
       CGTycAtIP = GetCGTyc(rhoiAtIP,hiAtIP,hwAtIP,XiYcAtIP,PorosityAtIP) !NEW
+
       ! groundwater flux
-      !PRINT *, "KGTTAtIP", KGTTAtIP,"CgwTTAtIP",CgwTTAtIP
+      !-----------------
       JgwDAtIP = 0.0_dp
       mugwAtIP = mugw(CurrentSolventMaterial,CurrentSoluteMaterial,&
            XiAtIP(IPPerm),T0,SalinityAtIP,TemperatureAtIP,ConstVal)
@@ -2297,22 +2299,9 @@ CONTAINS
 
       JgwDAtIP = GetJgwD(KgwppAtIP,KgwpTAtIP,KgwAtIP,gradpAtIP,gradTAtIP,Gravity,rhogwAtIP,DIM,CryogenicSuction)
       !PRINT *,"HTEQ: JgwD=(",JgwDAtIP(1:DIM)*365.5*24.0*3600.0,")"
-!      END IF
-      ! write flux to output variable
-      IF (FluxOutput) THEN        
-        DO I=1,DIM
-          WRITE (DimensionString,'(I1)') I
-          FluxAtElemVar => VariableGet( Solver % Mesh % Variables, 'Element Groundwater Flux '//TRIM(DimensionString))
-          FluxAtElemPerm => FluxAtElemVar % Perm
-          FluxAtElem => FluxAtElemVar % Values
-          FluxAtElem(FluxAtElemPerm(ElementNo) + 1) = FluxAtElem(FluxAtElemPerm(ElementNo) + 1)&
-               + JgwDAtIP(I)/(IP % n)
-          !FluxAtElem(FluxAtElemPerm(ElementNo)*FluxDOFs + (t-1)*FluxDOFs + i) = JgwDAtIP(i)
-          !PRINT *,FluxAtElem(FluxAtElemPerm(ElementNo)*FluxDOFs + (t-1)*FluxDOFs + i),&
-          !     FluxAtElemPerm(ElementNo), FluxDOFs, t,ElementNo
-        END DO
-      END IF
+
       ! add thermal dispersion in Hydro-Geological Mode
+      !------------------------------------------------
       IF (HydroGeo) THEN
         DtdAtIP = GetDtd(CurrentRockMaterial,RockMaterialID,XiAtIP(IPPerm),PorosityAtIP,JgwDAtIP)
         DO I=1,DIM
