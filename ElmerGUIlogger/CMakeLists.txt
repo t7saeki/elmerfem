@@ -2,6 +2,10 @@ CMAKE_MINIMUM_REQUIRED(VERSION 2.8)
 SET(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH};${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules")
 MESSAGE(STATUS "------------------------------------------------")
 
+IF(ElmerGUIloggerSTANDALONE)
+  PROJECT(ElmerGUIlogger CXX C)
+ENDIF(ElmerGUIloggerSTANDALONE)
+
 
 IF(WITH_QT5)
   MESSAGE(STATUS "------------------------------------------------")
@@ -20,15 +24,6 @@ ELSE()
   MESSAGE(STATUS "  [ElmerGUIlogger] Qt4_LIBRARIES:     " ${Qt4_LIBRARY})
   MESSAGE(STATUS "------------------------------------------------")
 ENDIF()
-
-
-IF(ElmerGUIloggerSTANDALONE)
-  PROJECT(ElmerGUIlogger CXX C)
-  IF(WIN32)
-    INCLUDE(cmake/windows_bundle.cmake)
-  ENDIF(WIN32)
-ENDIF(ElmerGUIloggerSTANDALONE)
-
 
 SET(CMAKE_INCLUDE_CURRENT_DIR ON)
 SET(CMAKE_AUTOMOC ON)
@@ -63,6 +58,18 @@ ENDIF()
 
 
 ADD_EXECUTABLE(ElmerGUIlogger WIN32 ${SOURCES} ${UI_RESOURCES})
+
+IF(WITH_QT5)
+  QT5_USE_MODULES(ElmerGUIlogger OpenGL Xml Script Gui Core PrintSupport)
+ENDIF()
+
 TARGET_LINK_LIBRARIES(ElmerGUIlogger ${QT_LIBRARIES})
 
 INSTALL(TARGETS ElmerGUIlogger RUNTIME DESTINATION "bin" COMPONENT "elmergui")
+
+
+IF(ElmerGUIloggerSTANDALONE)
+  IF(WIN32)
+    INCLUDE(cmake/windows_bundle.cmake)
+  ENDIF(WIN32)
+ENDIF(ElmerGUIloggerSTANDALONE)

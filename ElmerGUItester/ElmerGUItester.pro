@@ -1,6 +1,6 @@
 TEMPLATE = app
 TARGET = ElmerGUItester
-DEPENDPATH += . forms src
+DEPENDPATH += . src forms
 INCLUDEPATH += .
 
 OBJECTS_DIR = tmp
