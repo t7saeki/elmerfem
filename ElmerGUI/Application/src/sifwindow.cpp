@@ -184,6 +184,32 @@ SifWindow::SifWindow(QWidget *parent) : QMainWindow(parent) {
 
   lineEdit = new QLineEdit;
   connect(lineEdit, SIGNAL(returnPressed()), this, SLOT(findSlot()));
+  
+  
+  
+  // for sif history //////////////////////////////
+  dock = new QDockWidget(this);
+  dock->setWindowTitle("Run history");
+  dock->setFeatures(QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetMovable);
+  historyWidget = new QWidget(this);
+  QVBoxLayout* layout = new QVBoxLayout();  
+  historyWidget->setLayout(layout);
+  historyList = new QComboBox();
+  //historyList->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+  historyEdit = new QTextEdit;
+  //historyEdit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  historyEdit->setReadOnly(true);
+  historyEdit->setLineWrapMode(QTextEdit::NoWrap);
+  layout->addWidget(historyList);
+  layout->addWidget(historyEdit);
+  dock->setWidget(historyWidget);
+  dock->hide();
+  addDockWidget(Qt::RightDockWidgetArea, dock);
+  
+  //connect(historyList, SIGNAL(itemSelectionChanged()), this, SLOT(historySelectionChangeSlot()));
+  connect(historyList, SIGNAL(currentIndexChanged(int)), this, SLOT(historySelectionChangeSlot()));  
+  //////////////////////////////////////////////////
+  
 
   createActions();
   createMenus();
@@ -197,6 +223,7 @@ SifWindow::SifWindow(QWidget *parent) : QMainWindow(parent) {
   setWindowIcon(QIcon(":/icons/Mesh3D.png"));
 
   highlighter = NULL;
+  historyHighlighter = NULL;
 
   QString strFont = ((MainWindow *)parent)
                         ->settings_value(QString("sifWindow/font"), QString(""))
@@ -206,6 +233,7 @@ SifWindow::SifWindow(QWidget *parent) : QMainWindow(parent) {
     font.setFixedPitch(true);
     textEdit->setFont(font);
     lineEdit->setFont(font);
+	historyEdit->setFont(font);
   }
 
   int syntaxHighlighting =
@@ -220,6 +248,7 @@ SifWindow::SifWindow(QWidget *parent) : QMainWindow(parent) {
   } else if (syntaxHighlighting == SIF_HIGHLIGHTING_DARK) {
     highlightingDarkSlot();
   }
+  
 }
 
 SifWindow::~SifWindow() {}
@@ -257,6 +286,12 @@ void SifWindow::createActions() {
   printAct->setShortcut(tr("Ctrl+P"));
   printAct->setStatusTip(tr("Print document"));
   connect(printAct, SIGNAL(triggered()), this, SLOT(printSlot()));
+  
+  showHistoryAct = new QAction(QIcon(":/icons/player-time.png"), tr("&Show run history"), this);
+  showHistoryAct->setShortcut(tr("Ctrl+H"));
+  showHistoryAct->setStatusTip(tr("Show/Hide run history"));
+  connect(showHistoryAct, SIGNAL(triggered()), this, SLOT(showHistorySlot()));
+  showHistoryAct->setCheckable(true);  
 
   exitAct =
       new QAction(QIcon(":/icons/application-exit.png"), tr("&Quit"), this);
@@ -283,7 +318,7 @@ void SifWindow::createActions() {
   findAct->setShortcut(tr("Ctrl+F"));
   findAct->setStatusTip(tr("Find text in document"));
   connect(findAct, SIGNAL(triggered()), this, SLOT(findSlot()));
-
+  
   fontAct = new QAction(QIcon(""), tr("&Font"), this);
   findAct->setStatusTip(tr("Select font"));
   connect(fontAct, SIGNAL(triggered()), this, SLOT(fontSlot()));
@@ -324,6 +359,9 @@ void SifWindow::createMenus() {
   fileMenu->addSeparator();
   fileMenu->addAction(exitAct);
 
+  fileMenu->addSeparator();
+  fileMenu->addAction(showHistoryAct);
+
   editMenu = menuBar()->addMenu(tr("&Edit"));
   editMenu->addAction(cutAct);
   editMenu->addAction(copyAct);
@@ -346,6 +384,8 @@ void SifWindow::createToolBars() {
   fileToolBar->addAction(saveAct);
   fileToolBar->addAction(saveAndRunAct);
   fileToolBar->addAction(printAct);
+  fileToolBar->addSeparator();
+  fileToolBar->addAction(showHistoryAct);
 
   editToolBar = addToolBar(tr("&Edit"));
   editToolBar->addAction(cutAct);
@@ -498,6 +538,8 @@ void SifWindow::highlightingNoneSlot() {
   setStyleSheet(style);
   delete highlighter;
   highlighter = NULL;
+  delete historyHighlighter;
+  historyHighlighter = NULL;
   ((MainWindow *)parent())
       ->settings_setValue(QString("sifWindow/highlighting"),
                           SIF_HIGHLIGHTING_NONE);
@@ -512,6 +554,9 @@ void SifWindow::highlightingLightSlot() {
   delete highlighter;
   highlighter =
       new SifHighlighter(SIF_HIGHLIGHTING_LIGHT, textEdit->document());
+  delete historyHighlighter;
+  historyHighlighter =
+      new SifHighlighter(SIF_HIGHLIGHTING_LIGHT, historyEdit->document());
   ((MainWindow *)parent())
       ->settings_setValue(QString("sifWindow/highlighting"),
                           SIF_HIGHLIGHTING_LIGHT);
@@ -525,6 +570,8 @@ void SifWindow::highlightingDarkSlot() {
   setStyleSheet(style);
   delete highlighter;
   highlighter = new SifHighlighter(SIF_HIGHLIGHTING_DARK, textEdit->document());
+  delete historyHighlighter;
+  historyHighlighter = new SifHighlighter(SIF_HIGHLIGHTING_DARK, historyEdit->document());
   ((MainWindow *)parent())
       ->settings_setValue(QString("sifWindow/highlighting"),
                           SIF_HIGHLIGHTING_DARK);
@@ -535,4 +582,121 @@ void SifWindow::highlightingDarkSlot() {
 
 void SifWindow::saveAndRunSlot() {
   ((MainWindow *)parent())->saveAndRun(false);
+}
+
+void SifWindow::archive(int triggerMenu){
+
+  QString sifText = textEdit->toPlainText();
+  if(sifText.isEmpty()) return;
+  
+  QDir projectDir(((MainWindow *)parent())->projectDirPath());
+  projectDir.mkdir("sif_history"); 
+  QDir archiveDir(((MainWindow *)parent())->projectDirPath() + "/sif_history");
+ 
+  QDateTime dt = QDateTime::currentDateTime();
+  
+  QString tail = QString("-%1.sif").arg(triggerMenu);
+  QString fileName = dt.toString("yyyy_MM_dd-hh_mm_ss-zzz") +  tail;
+
+  QFile file;
+  file.setFileName(archiveDir.absolutePath() + "/" + fileName);
+  if (!file.open(QIODevice::WriteOnly))
+    return;
+
+  QTextStream outputStream(&file);
+  outputStream << sifText;
+
+  file.close();
+  
+  QString name = fileName;
+  name.replace(4,1,QChar('/'));
+  name.replace(7,1,QChar('/'));
+  name.replace(10,1,QChar(' '));
+  name.replace(13,1,QChar(':'));
+  name.replace(16,1,QChar(':'));
+  
+  if(triggerMenu == SIF_ARCHIVE_BY_SAVE_AND_RUN_MENU){
+	historyList->insertItem(0, QIcon(":/icons/arrow-right.png"), name.left(19), fileName);
+  }else if(triggerMenu == SIF_ARCHIVE_BY_GENERATE_AND_SAVE_AND_RUN_MENU){
+	historyList->insertItem(0, QIcon(":/icons/arrow-right-double.png"), name.left(19), fileName);
+  }else if(triggerMenu == SIF_ARCHIVE_BY_START_SOLVER_MENU){
+	historyList->insertItem(0, QIcon(":/icons/Solver.png"), name.left(19), fileName);
+  }else{
+	historyList->insertItem(0, QIcon(":/icons/none.png"), name.left(19), fileName);
+  }
+  
+}
+
+void SifWindow::loadHistory(){
+  /* 
+    Load existing archive from sif_fistory directory when project directory has chenched - i.e.: 
+	- loading a project
+	- saving a project to another directory
+ */
+	
+  QString name;
+  QDir projectDir(((MainWindow *)parent())->projectDirPath());
+  QDir archiveDir(((MainWindow *)parent())->projectDirPath() + "/sif_history");
+  
+  QStringList nameFilters;
+  nameFilters << "*.sif";
+  QStringList fileNameList = archiveDir.entryList(nameFilters, QDir::Files | QDir::Readable, QDir::Time/*|QDir::Reversed*/);
+  historyList->clear();
+  //historyList->addItems(fileNameList);
+  for(int i = 0; i < fileNameList.size(); i++){
+	  QString name = fileNameList.at(i);
+	  int triggerMenu = name.mid(24,1).toInt();
+      name.replace(4,1,QChar('/'));
+      name.replace(7,1,QChar('/'));
+      name.replace(10,1,QChar(' '));
+      name.replace(13,1,QChar(':'));
+      name.replace(16,1,QChar(':'));
+	  if(triggerMenu == SIF_ARCHIVE_BY_SAVE_AND_RUN_MENU){
+		historyList->addItem(QIcon(":/icons/arrow-right.png"), name.left(19), fileNameList.at(i));
+	  }else if(triggerMenu == SIF_ARCHIVE_BY_GENERATE_AND_SAVE_AND_RUN_MENU){
+		historyList->addItem(QIcon(":/icons/arrow-right-double.png"), name.left(19), fileNameList.at(i));
+	  }else if(triggerMenu == SIF_ARCHIVE_BY_START_SOLVER_MENU){
+		historyList->addItem(QIcon(":/icons/Solver.png"), name.left(19), fileNameList.at(i));
+	  }else{
+		historyList->addItem(QIcon(":/icons/none.png"),name.left(19), fileNameList.at(i));
+	  }
+
+  }
+  historyEdit->clear();
+  if(historyList->count() > 1) historyList->setCurrentIndex(0);
+  historySelectionChangeSlot();
+}
+
+void SifWindow::historySelectionChangeSlot(){
+
+  QString name;
+  QDir projectDir(((MainWindow *)parent())->projectDirPath());
+  QDir archiveDir(((MainWindow *)parent())->projectDirPath() + "/sif_history");
+    
+  QString fileName = archiveDir.absolutePath() + "/" + historyList->currentData().toString();//currentItem()->text();
+  
+  QFile file;
+  file.setFileName(fileName);
+  if (!file.open(QIODevice::ReadOnly)){
+	historyEdit->clear();
+    historyEdit->append(QString("Failed to load sif archive file."));	
+    return;
+  }
+
+  QTextStream inputStream(&file);
+  historyEdit->clear();
+  QString line = inputStream.readAll();
+  file.close();
+  historyEdit->append(line);
+  historyEdit->verticalScrollBar()->setValue(0);
+ 
+}
+
+void SifWindow::showHistorySlot(){
+  if(dock->isVisible()){
+	dock->hide();
+  }
+  else{
+	dock->show();
+  }
 }

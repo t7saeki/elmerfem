@@ -50,5 +50,7 @@
    <file>icons/arrow-right-double.png</file>
    <file>icons/set-body-property.png</file>
    <file>icons/set-boundary-property.png</file>
+   <file>icons/player-time.png</file>
+   <file>icons/none.png</file>
 </qresource>
 </RCC>

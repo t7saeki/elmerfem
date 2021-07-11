@@ -2588,6 +2588,7 @@ void MainWindow::loadProject(QString projectDirName) {
         logMessage(" failed to open " + sifName);
       }
   }
+  sifWindow->loadHistory();
 
   logMessage("Ready");
 
@@ -6499,6 +6500,10 @@ void MainWindow::parallelSettingsSlot() { parallel->show(); }
 // Solver -> Run solver
 //-----------------------------------------------------------------------------
 void MainWindow::runsolverSlot() {
+  runSolver(SIF_ARCHIVE_BY_START_SOLVER_MENU);
+}
+
+void MainWindow::runSolver(int triggerMenu) {
   if (!glWidget->hasMesh()) {
     logMessage("No mesh - unable to start solver");
     return;
@@ -6508,6 +6513,8 @@ void MainWindow::runsolverSlot() {
     logMessage("Solver is already running - returning");
     return;
   }
+  
+  sifWindow->archive(triggerMenu); // archive sif file which is going to run
 
   // Parallel solution:
   //====================
@@ -8062,7 +8069,8 @@ void MainWindow::saveAndRun(bool generateSif) {
 
   //------- Run solver -------//
   if (ret) {
-    runsolverSlot();
+    if(generateSif) runSolver(SIF_ARCHIVE_BY_GENERATE_AND_SAVE_AND_RUN_MENU);
+	else runSolver(SIF_ARCHIVE_BY_SAVE_AND_RUN_MENU);
   }
 }
 
@@ -8112,4 +8120,8 @@ void MainWindow::selectParaViewSlot(){
   selectElmerPostAct->setChecked(false);
   selectVtkPostAct->setChecked(false);
   selectParaViewAct->setChecked(true);
+}
+
+QString MainWindow::projectDirPath(){
+  return currentProjectDirName;
 }

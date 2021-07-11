@@ -45,11 +45,19 @@
 #define SIF_HIGHLIGHTING_LIGHT	1
 #define SIF_HIGHLIGHTING_DARK	2
 
+// These three will be used to specify how solver was triggered for SifWindow::archive(int triggerMenu);
+#define SIF_ARCHIVE_BY_SAVE_AND_RUN_MENU 1
+#define SIF_ARCHIVE_BY_GENERATE_AND_SAVE_AND_RUN_MENU 2
+#define SIF_ARCHIVE_BY_START_SOLVER_MENU 3
+
 #include <QMainWindow>
 #include <QSyntaxHighlighter>
 
 class QTextEdit;
 class QLineEdit;
+class QDockWidget;
+class QListWidget;
+class QComboBox;
 
 class SifHighlighter : public QSyntaxHighlighter
 {
@@ -95,8 +103,11 @@ public:
 
   QTextEdit* getTextEdit(void);
   SifHighlighter *highlighter; 
+  SifHighlighter *historyHighlighter; 
+  
   void setFirstTime(bool);
   void setFound(bool);
+  void archive(int);
 
 private slots:
   void newSlot();
@@ -104,11 +115,13 @@ private slots:
   void saveSlot();
   void printSlot();
   void findSlot();
+    void showHistorySlot();
 	void fontSlot();
 	void highlightingNoneSlot();
 	void highlightingLightSlot();
 	void highlightingDarkSlot();
 	void saveAndRunSlot();
+	void historySelectionChangeSlot();
 
 private:
   QTextEdit *textEdit;
@@ -126,6 +139,7 @@ private:
   QAction *copyAct;
   QAction *pasteAct;
   QAction *findAct;
+	QAction *showHistoryAct;
 	QAction *fontAct;
 	QAction *highlightingNoneAct;
 	QAction *highlightingLightAct;
@@ -144,6 +158,17 @@ private:
   void createMenus();
   void createToolBars();
   void createStatusBar();
+  
+  //for sif history
+  QDockWidget* dock;
+  QWidget* historyWidget;
+  //QListWidget* historyList;
+  QComboBox* historyList;
+  QTextEdit* historyEdit;
+  
+public:  
+  void loadHistory();
+  
 };
 
 #endif

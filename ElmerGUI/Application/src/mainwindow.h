@@ -115,6 +115,7 @@ public:
   void settings_setValue(const QString &key, const QVariant &value);
   void saveAndRun(bool generateSif);
   void showContextMenu(QPoint);
+  QString projectDirPath();
 
 protected:
   void contextMenuEvent(QContextMenuEvent *event);
@@ -306,9 +307,9 @@ private:
   bool saveProject(QString);
   void loadSettings();
   void saveSettings();
-  bool loadExtraSolver(
-      QString); // load the solver with specified solver name, Nov 2019 by TS
+  bool loadExtraSolver(QString); // load the solver with specified solver name, Nov 2019 by TS
   void checkAndLoadExtraSolvers(QFile *);
+  void runSolver(int); // seperate from runSolverSlot to identify how sif was run in "Run history" in SifWindow
 
   QMenu *fileMenu;              // File menu
   QMenu *recentProjectsMenu;    // File -> Recent projects menu
