@@ -49,6 +49,7 @@
 #define SIF_ARCHIVE_BY_SAVE_AND_RUN_MENU 1
 #define SIF_ARCHIVE_BY_GENERATE_AND_SAVE_AND_RUN_MENU 2
 #define SIF_ARCHIVE_BY_START_SOLVER_MENU 3
+#define SIF_ARCHIVE_BY_ARCHIVE_MENU 4
 
 #include <QMainWindow>
 #include <QSyntaxHighlighter>
@@ -58,6 +59,7 @@ class QLineEdit;
 class QDockWidget;
 class QListWidget;
 class QComboBox;
+class QPushButton;
 
 class SifHighlighter : public QSyntaxHighlighter
 {
@@ -87,7 +89,7 @@ private:
     QTextCharFormat keywordFormat;
     QTextCharFormat simulationTypeFormat;
     QTextCharFormat valueFormat;  
-		QTextCharFormat suffixFormat;
+    QTextCharFormat suffixFormat;
 };
 
 class SifWindow : public QMainWindow
@@ -122,6 +124,8 @@ private slots:
 	void highlightingDarkSlot();
 	void saveAndRunSlot();
 	void historySelectionChangeSlot();
+	void restoreSlot();
+	void archiveSlot();
 
 private:
   QTextEdit *textEdit;
@@ -139,17 +143,18 @@ private:
   QAction *copyAct;
   QAction *pasteAct;
   QAction *findAct;
-	QAction *showHistoryAct;
-	QAction *fontAct;
-	QAction *highlightingNoneAct;
-	QAction *highlightingLightAct;
-	QAction *highlightingDarkAct;
-	QAction *saveAndRunAct;
+  QAction *showHistoryAct;
+  QAction *fontAct;
+  QAction *highlightingNoneAct;
+  QAction *highlightingLightAct;
+  QAction *highlightingDarkAct;
+  QAction *saveAndRunAct;
+  QAction *archiveAct;
 
   QMenu *fileMenu;
   QMenu *editMenu;
-	QMenu *preferenceMenu;
-	QMenu *highlightingMenu;
+  QMenu *preferenceMenu;
+  QMenu *highlightingMenu;
 
   QToolBar *fileToolBar;
   QToolBar *editToolBar;
@@ -159,12 +164,15 @@ private:
   void createToolBars();
   void createStatusBar();
   
-  //for sif history
+  
+  ///////// for sif history //////////
   QDockWidget* dock;
   QWidget* historyWidget;
   //QListWidget* historyList;
   QComboBox* historyList;
   QTextEdit* historyEdit;
+  QPushButton* restoreButton;
+  ////////////////////////////////////
   
 public:  
   void loadHistory();

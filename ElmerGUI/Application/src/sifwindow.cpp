@@ -185,6 +185,10 @@ SifWindow::SifWindow(QWidget *parent) : QMainWindow(parent) {
   lineEdit = new QLineEdit;
   connect(lineEdit, SIGNAL(returnPressed()), this, SLOT(findSlot()));
   
+  createActions();
+  createMenus();
+  createToolBars();
+  createStatusBar();
   
   
   // for sif history //////////////////////////////
@@ -192,29 +196,37 @@ SifWindow::SifWindow(QWidget *parent) : QMainWindow(parent) {
   dock->setWindowTitle("Run history");
   dock->setFeatures(QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetMovable);
   historyWidget = new QWidget(this);
-  QVBoxLayout* layout = new QVBoxLayout();  
+  QVBoxLayout* layout = new QVBoxLayout();
+  QHBoxLayout* layout2 = new QHBoxLayout();
   historyWidget->setLayout(layout);
   historyList = new QComboBox();
-  //historyList->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+  restoreButton = new QPushButton(QIcon(":/icons/document-revert.png"), tr("Restore"));
+  restoreButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+  connect(restoreButton, SIGNAL(pressed()), this, SLOT(restoreSlot()));
+  layout2->addWidget(historyList);
+  layout2->addWidget(restoreButton);
   historyEdit = new QTextEdit;
-  //historyEdit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   historyEdit->setReadOnly(true);
   historyEdit->setLineWrapMode(QTextEdit::NoWrap);
-  layout->addWidget(historyList);
+  layout->addLayout(layout2);
   layout->addWidget(historyEdit);
   dock->setWidget(historyWidget);
-  dock->hide();
+  if(
+    ((MainWindow *)parent)->settings_value(QString("sifWindow/showHistory"), true).toBool() == false
+  ){
+	dock->hide();
+	showHistoryAct->setChecked(false);
+  }else{
+	showHistoryAct->setChecked(true);
+  }
+  
   addDockWidget(Qt::RightDockWidgetArea, dock);
   
   //connect(historyList, SIGNAL(itemSelectionChanged()), this, SLOT(historySelectionChangeSlot()));
   connect(historyList, SIGNAL(currentIndexChanged(int)), this, SLOT(historySelectionChangeSlot()));  
+ 
   //////////////////////////////////////////////////
   
-
-  createActions();
-  createMenus();
-  createToolBars();
-  createStatusBar();
 
   firstTime = true;
   found = false;
@@ -251,7 +263,8 @@ SifWindow::SifWindow(QWidget *parent) : QMainWindow(parent) {
   
 }
 
-SifWindow::~SifWindow() {}
+SifWindow::~SifWindow() {
+}
 
 QTextEdit *SifWindow::getTextEdit(void) { return this->textEdit; }
 
@@ -288,10 +301,13 @@ void SifWindow::createActions() {
   connect(printAct, SIGNAL(triggered()), this, SLOT(printSlot()));
   
   showHistoryAct = new QAction(QIcon(":/icons/player-time.png"), tr("&Show run history"), this);
-  showHistoryAct->setShortcut(tr("Ctrl+H"));
   showHistoryAct->setStatusTip(tr("Show/Hide run history"));
   connect(showHistoryAct, SIGNAL(triggered()), this, SLOT(showHistorySlot()));
   showHistoryAct->setCheckable(true);  
+  
+  archiveAct = new QAction(QIcon(":/icons/archive-insert.png"), tr("&Archive sif"), this);
+  archiveAct->setStatusTip(tr("Archive current sif content without running solver"));
+  connect( archiveAct, SIGNAL(triggered()), this, SLOT(archiveSlot()));
 
   exitAct =
       new QAction(QIcon(":/icons/application-exit.png"), tr("&Quit"), this);
@@ -361,6 +377,7 @@ void SifWindow::createMenus() {
 
   fileMenu->addSeparator();
   fileMenu->addAction(showHistoryAct);
+  fileMenu->addAction(archiveAct);
 
   editMenu = menuBar()->addMenu(tr("&Edit"));
   editMenu->addAction(cutAct);
@@ -386,6 +403,7 @@ void SifWindow::createToolBars() {
   fileToolBar->addAction(printAct);
   fileToolBar->addSeparator();
   fileToolBar->addAction(showHistoryAct);
+  fileToolBar->addAction(archiveAct);
 
   editToolBar = addToolBar(tr("&Edit"));
   editToolBar->addAction(cutAct);
@@ -621,6 +639,8 @@ void SifWindow::archive(int triggerMenu){
 	historyList->insertItem(0, QIcon(":/icons/arrow-right-double.png"), name.left(19), fileName);
   }else if(triggerMenu == SIF_ARCHIVE_BY_START_SOLVER_MENU){
 	historyList->insertItem(0, QIcon(":/icons/Solver.png"), name.left(19), fileName);
+  }else if(triggerMenu == SIF_ARCHIVE_BY_ARCHIVE_MENU){
+	historyList->insertItem(0, QIcon(":/icons/archive-insert.png"), name.left(19), fileName);
   }else{
 	historyList->insertItem(0, QIcon(":/icons/none.png"), name.left(19), fileName);
   }
@@ -669,6 +689,11 @@ void SifWindow::loadHistory(){
 
 void SifWindow::historySelectionChangeSlot(){
 
+  if( historyList->currentIndex() == -1 || historyList->currentText().isEmpty() ){
+      historyEdit->clear();
+	  return;
+  }
+
   QString name;
   QDir projectDir(((MainWindow *)parent())->projectDirPath());
   QDir archiveDir(((MainWindow *)parent())->projectDirPath() + "/sif_history");
@@ -679,7 +704,7 @@ void SifWindow::historySelectionChangeSlot(){
   file.setFileName(fileName);
   if (!file.open(QIODevice::ReadOnly)){
 	historyEdit->clear();
-    historyEdit->append(QString("Failed to load sif archive file."));	
+    historyEdit->append(QString("Sif archive file not available"));	
     return;
   }
 
@@ -698,5 +723,26 @@ void SifWindow::showHistorySlot(){
   }
   else{
 	dock->show();
+  }
+  ((MainWindow *)parent())->settings_setValue(QString("sifWindow/showHistory"), dock->isVisible());
+}
+
+
+void SifWindow::restoreSlot(){
+	
+  if( historyList->currentIndex() >0 && !historyList->currentText().isEmpty() && historyEdit->toPlainText() != QString("Sif archive file not available")
+		&&
+    QMessageBox::question(this, "Restore sif contents", "Are you sure to restore sif content?", QMessageBox::StandardButtons(QMessageBox::Yes | QMessageBox::No),  QMessageBox::Yes) ==  QMessageBox::Yes
+  ){ 
+    textEdit->setPlainText(historyEdit->toPlainText());
+  }
+}
+
+void SifWindow::archiveSlot(){
+  archive(SIF_ARCHIVE_BY_ARCHIVE_MENU);
+  if(!dock->isVisible()){
+	historyList->setCurrentIndex(0);
+	showHistorySlot();
+	showHistoryAct->setChecked(true);
   }
 }
