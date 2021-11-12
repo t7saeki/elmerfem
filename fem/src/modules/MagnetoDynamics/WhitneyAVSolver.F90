@@ -134,7 +134,7 @@ SUBROUTINE WhitneyAVSolver_Init0(Model,Solver,dt,Transient)
 
     END SELECT
 
-    CALL Info('WhitneyAVSolver_Init0','Setting element type to: "'//TRIM(ElemType)//'"')
+    CALL Info('WhitneyAVSolver_Init0','Setting element type to: "'//TRIM(ElemType)//'"',Level=6)
     CALL ListAddString( SolverParams,'Element',ElemType ) 
 
     
@@ -569,7 +569,7 @@ CONTAINS
 
    REAL(KIND=dp)::TOL,Norm,PrevNorm, NonLinError, LinTol, RelTol, BaseTol
    LOGICAL :: Found, FoundMagnetization, CalculateNonlinearResidual, LFactFound
-   LOGICAL :: AdaptiveTols, FoundAny
+   LOGICAL :: AdaptiveTols, FoundAny, ConstraintActive
 
    TYPE(Matrix_t), POINTER :: MMatrix
    REAL(KIND=dp), POINTER :: Mx(:), Mb(:), Mr(:)
@@ -656,9 +656,12 @@ CONTAINS
 
      CoilBody = .FALSE.
      CompParams => GetComponentParams( Element )
+
      CoilType = ''
      RotM = 0._dp
+     ConstraintActive = .TRUE.
      IF (ASSOCIATED(CompParams)) THEN
+
        CoilType = GetString(CompParams, 'Coil Type', Found)
        IF (Found) THEN
          SELECT CASE (CoilType)
@@ -672,6 +675,9 @@ CONTAINS
          CASE DEFAULT
             CALL Fatal ('WhitneyAVSolver', 'Non existent Coil Type Chosen!')
          END SELECT
+         ConstraintActive = GetLogical(CompParams, 'Activate Constraint', Found )
+!        IF (.NOT. Found .AND. CoilType/='stranded') ConstraintActive = .TRUE.
+         IF (.NOT. Found ) ConstraintActive = .FALSE.
        END IF
      END IF
 
@@ -725,7 +731,7 @@ CONTAINS
      !----------------------------------------
        CALL LocalMatrix( MASS, STIFF, FORCE, JFixFORCE, JFixVec, LOAD, &
          Tcoef, Acoef, LaminateStack, LaminateStackModel, &
-         LamThick, LamCond, CoilBody, CoilType, RotM, &
+         LamThick, LamCond, CoilBody, CoilType, RotM, ConstraintActive, &
          Element, n, nd+nb, PiolaVersion, SecondOrder)
        
      ! Update global matrix and rhs vector from local matrix & vector:
@@ -885,6 +891,72 @@ CONTAINS
     ! temporary fix to some scaling problem (to be resolved)...
     CALL ListAddLogical( SolverParams, 'Linear System Dirichlet Scaling', .FALSE.) 
   END IF
+
+
+BLOCK
+! Automatic BC for massive,foil coils outer boundaries, when "Activate Constraint" on!!
+
+    TYPE(Element_t), POINTER :: Parent
+    LOGICAL :: AutomaticBC
+    INTEGER, POINTER :: Electrodes(:)
+
+    A => GetMatrix()
+
+    IF (.NOT.ALLOCATED(A % ConstrainedDOF)) THEN
+      ALLOCATE(A % ConstrainedDOF(A % NumberOfRows))
+      A % ConstrainedDOF = .FALSE.
+    END IF
+
+    IF(.NOT.ALLOCATED(A % DValues)) THEN
+      ALLOCATE(A % Dvalues(A % NumberOfRows))
+      A % Dvalues = 0._dp
+    END IF
+
+    Active = GetNOFBoundaryElements()
+    DO t = 1, Active
+      Element => GetBoundaryElement(t)
+      IF(.NOT.ActiveBoundaryElement()) CYCLE
+
+      Parent => Element % BoundaryInfo % Right
+      IF(ASSOCIATED(Parent)) CYCLE
+
+      IF(ParEnv % PEs>1) THEN
+        ! Assuming here that this is an internal boundary, if all elements nodes are
+        ! interface nodes. Not foolproof i guess, but quite safe (?)
+        IF (ALL(Solver % Mesh % ParallelInfo % NodeInterface(Element % NodeIndexes))) CYCLE
+      END IF
+ 
+      Parent => Element % BoundaryInfo % Left
+      IF(.NOT.ASSOCIATED(Parent)) CYCLE
+
+      CompParams => GetComponentParams(Parent)
+      IF (.NOT. ASSOCIATED(CompParams)) CYCLE
+
+      CoilType = GetString(CompParams, 'Coil Type', Found)
+      IF(CoilType/='massive' .AND. CoilType/='foil winding') CYCLE
+
+      ConstraintActive = GetLogical(CompParams,'Activate Constraint',Found )
+      IF( .NOT. ConstraintActive ) CYCLE
+
+      AutomaticBC = GetLogical( CompParams, 'Automatic electrode BC', Found )
+      IF(.NOT.Found) AutomaticBC = .TRUE.
+
+      IF(.NOT.AutomaticBC) CYCLE
+
+      Electrodes =>  ListGetIntegerArray( CompParams, &
+             'Electrode Boundaries', Found )
+
+      IF(ASSOCIATED(Electrodes)) THEN
+        IF(ALL(Electrodes/=Element % BoundaryInfo % Constraint)) CYCLE
+      END IF
+
+
+      DO i=1,Element % Type % NumberOfNodes
+        j = Solver % Variable % Perm(Element % NodeIndexes(i))
+        A % ConstrainedDOF(j) = .TRUE.
+      END DO
+    END DO
+END BLOCK
 
   CALL DefaultDirichletBCs()
 
@@ -1546,14 +1618,14 @@ END SUBROUTINE LocalConstraintMatrix
 !-----------------------------------------------------------------------------
   SUBROUTINE LocalMatrix( MASS, STIFF, FORCE, JFixFORCE, JFixVec, LOAD, &
             Tcoef, Acoef, LaminateStack, LaminateStackModel, &
-            LamThick, LamCond, CoilBody, CoilType, RotM, &
+            LamThick, LamCond, CoilBody, CoilType, RotM, ConstraintActive, &
             Element, n, nd, PiolaVersion, SecondOrder )
 !------------------------------------------------------------------------------
     IMPLICIT NONE
     REAL(KIND=dp) :: STIFF(:,:), FORCE(:), MASS(:,:), JFixFORCE(:), JFixVec(:,:)
     REAL(KIND=dp) :: LOAD(:,:), Tcoef(:,:,:), Acoef(:), &
                      LamThick(:), LamCond(:)
-    LOGICAL :: LaminateStack, CoilBody
+    LOGICAL :: LaminateStack, CoilBody, ConstraintActive
     CHARACTER(LEN=MAX_NAME_LEN):: LaminateStackModel, CoilType
     REAL(KIND=dp) :: RotM(3,3,n)
     TYPE(Element_t), POINTER :: Element
@@ -1760,7 +1832,7 @@ END SUBROUTINE LocalConstraintMatrix
        ! Compute element stiffness matrix and force vector.
        ! If we calculate a coil, the nodal degrees of freedom are not used.
        ! ------------------------------------------------------------------
-       IF (.NOT. CoilBody) THEN
+       IF ( ConstraintActive ) THEN
          ! --------------------------------------------------------
          ! The constraint equation involving the scalar potential:
          !     -div(C*(dA/dt+grad(V)))=0

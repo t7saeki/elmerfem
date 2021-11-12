@@ -564,12 +564,18 @@ CONTAINS
      CALL VariableAdd(M2 % Variables,M2,Solver, &
           'Coordinate 3',1,M2 % Nodes % z )
 
-     V => VariableGet( M1 % Variables, 'Time' )
+     V => VariableGet( M1 % Variables, 'Time' )     
      CALL VariableAdd( M2 % Variables, M2, Solver, 'Time', 1, V % Values )
 
      V => VariableGet( M1 % Variables, 'Periodic Time' )
-     CALL VariableAdd( M2 % Variables, M2, Solver, 'Periodic Time', 1, V % Values)
-
+     IF( ASSOCIATED( V ) ) THEN
+       CALL VariableAdd( M2 % Variables, M2, Solver, 'Periodic Time', 1, V % Values)
+     END IF
+      V => VariableGet( M1 % Variables, 'Periodic Cycle' )
+     IF( ASSOCIATED( V ) ) THEN
+       CALL VariableAdd( M2 % Variables, M2, Solver, 'Periodic Cycle', 1, V % Values)
+     END IF
+       
      V => VariableGet( M1 % Variables, 'Timestep' )
      CALL VariableAdd( M2 % Variables, M2, Solver, 'Timestep', 1, V % Values )
 
@@ -593,8 +599,10 @@ CONTAINS
              'coupled iter', 1, V % Values )
 
      V => VariableGet( M1 % Variables, 'partition' )
-     CALL VariableAdd( M2 % Variables, M2, Solver, 'Partition', 1, V % Values )
-
+     IF( ASSOCIATED( V ) ) THEN
+       CALL VariableAdd( M2 % Variables, M2, Solver, 'Partition', 1, V % Values )
+     END IF
+       
      V => VariableGet( M1 % Variables, 'scan' )
      IF( ASSOCIATED( V ) ) THEN
        CALL VariableAdd( M2 % Variables, M2, Solver, 'scan', 1, V % Values)
@@ -2099,9 +2107,10 @@ CONTAINS
       ELSE 
         DO k = 1, SIZE( pVar % PrevValues, 2 )
           Component => pVar % PrevValues(:,k)
-          str = TRIM( pVar % Name ) //' PrevValues'//TRIM(I2S(k))          
+          str = TRIM( pVar % Name ) !//' PrevValues'//TRIM(I2S(k))          
           CALL VariableAddVector( Solver % Mesh % Variables, Solver % Mesh, Solver, &
-              str, pVar % Dofs, Component, pVar % Perm, Secondary = .TRUE., VarType = pvar % Type )
+              str, pVar % Dofs, Component, pVar % Perm, Secondary = .TRUE., &
+              VarType = pvar % TYPE, VarSuffix = 'PrevValues'//TRIM(I2S(k)))
         END DO
       END IF
     END IF
@@ -5197,7 +5206,7 @@ CONTAINS
      IF ( ASSOCIATED(Solver % Matrix) ) THEN
        ParEnv % ActiveComm = Solver % Matrix % Comm
        IF ( Parallel .AND. MeActive ) THEN
-         IF ( ASSOCIATED(Solver % Mesh % ParallelInfo % INTERFACE) ) THEN
+         IF ( ASSOCIATED(Solver % Mesh % ParallelInfo % NodeInterface) ) THEN
            IF (.NOT. ASSOCIATED(Solver % Matrix % ParMatrix) ) &
              CALL ParallelInitMatrix(Solver, Solver % Matrix )
 

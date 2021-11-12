@@ -64,16 +64,22 @@ CONTAINS
       VTKCode = 3
     CASE( 203 )
       VTKCode = 21
+    CASE( 204 )
+      VTKCode = 35  ! VTK_CUBIC_LINE but 68, VTK_LAGRANGE_CURVE, tested to work as well 
     CASE( 303 )
       VTKCode = 5
     CASE( 306 )
       VTKCode = 22
+    CASE( 310 )
+      VTKCode = 69  ! VTK_LAGRANGE_TRIANGLE
     CASE( 404 )
       VTKCode = 9
     CASE( 408 )
       VTKCode = 23
     CASE( 409 )
       VTKCode = 28
+    CASE( 416 )
+      VTKCode = 70  ! VTK_LAGRANGE_QUADRILATERAL
     CASE( 504 )
       VTKCode = 10
     CASE( 510 )
@@ -135,6 +141,8 @@ CONTAINS
     INTEGER, TARGET :: BCIndexes(27)
     INTEGER :: ElmerCode, i,j,k,n,hits
     INTEGER, POINTER :: Order(:)
+    INTEGER, TARGET, DIMENSION(16) :: &
+        Order416 = (/1,2,3,4,5,6,7,8,10,9,12,11,13,14,16,15/)
     INTEGER, TARGET, DIMENSION(20) :: &
         Order820 = (/1,2,3,4,5,6,7,8,9,10,11,12,17,18,19,20,13,14,15,16/)
     INTEGER, TARGET, DIMENSION(27) :: &
@@ -191,6 +199,10 @@ CONTAINS
     ! Linear elements never require reordering 
     IF( .NOT. SaveLinear ) THEN
       SELECT CASE (ElmerCode)
+
+      CASE( 416 )
+        Order => Order416
+        DoReOrder = .TRUE.
 
       CASE( 820 )
         Order => Order820
@@ -343,6 +355,7 @@ CONTAINS
       END IF
     ELSE
       ! Check if there is an additional mask name given
+      GotIt = .FALSE.
       IF( Mesh % MeshDim == 2 ) THEN
         MaskName = ListGetString( Params,'2D Mask Name',GotIt)    
       ELSE IF( Mesh % MeshDim == 3 ) THEN  

@@ -76,8 +76,8 @@
      REAL(KIND=dp) :: s,dt,dtfunc
      REAL(KIND=dP), POINTER :: WorkA(:,:,:) => NULL()
      REAL(KIND=dp), POINTER, SAVE :: sTime(:), sStep(:), sInterval(:), sSize(:), &
-         steadyIt(:),nonlinIt(:),sPrevSizes(:,:),sPeriodic(:),sScan(:),&
-         sSweep(:),sPar(:),sFinish(:),sProduce(:),sSlice(:),sSliceRatio(:),&
+         steadyIt(:),nonlinIt(:),sPrevSizes(:,:),sPeriodicTime(:),sPeriodicCycle(:),&
+         sScan(:),sSweep(:),sPar(:),sFinish(:),sProduce(:),sSlice(:),sSliceRatio(:),&
          sSliceWeight(:), sAngle(:), sAngleVelo(:)
 
      LOGICAL :: GotIt,Transient,Scanning, LastSaved, MeshMode = .FALSE.
@@ -86,11 +86,11 @@
        TotalTimesteps,SavedSteps,CoupledMaxIter,CoupledMinIter
 
      INTEGER, POINTER, SAVE :: Timesteps(:),OutputIntervals(:) => NULL(), ActiveSolvers(:)
-     REAL(KIND=dp), POINTER, SAVE :: TimestepSizes(:,:)
+     REAL(KIND=dp), POINTER, SAVE :: TimestepSizes(:,:),TimestepRatios(:,:)
 
      INTEGER(KIND=AddrInt) :: ControlProcedure
 
-     LOGICAL :: InitDirichlet, ExecThis
+     LOGICAL :: InitDirichlet, ExecThis, GotTimestepRatios = .FALSE.
 
      TYPE(ElementType_t),POINTER :: elmt
 
@@ -475,6 +475,12 @@ END INTERFACE
        IF ( FirstLoad ) CALL AddMeshCoordinatesAndTime()
 
 !------------------------------------------------------------------------------
+!      Initialize the random seeds so that all simulation depending on that
+!      give consistent results.
+!------------------------------------------------------------------------------      
+       IF( FirstLoad ) CALL InitializeRandomSeed()
+       
+!------------------------------------------------------------------------------
 !      Get Output File Options
 !------------------------------------------------------------------------------
 
@@ -590,6 +596,29 @@ END INTERFACE
    CONTAINS 
 
 
+     SUBROUTINE InitializeRandomSeed()
+       INTEGER :: i,n
+       INTEGER, ALLOCATABLE :: seeds(:)
+       
+       CALL RANDOM_SEED() ! initialize with system generated seed
+
+       i = ListGetInteger( CurrentModel % Simulation,'Random Number Seed',Found ) 
+       IF( .NOT. Found ) i = 314159265
+
+       CALL RANDOM_SEED(size=j) ! find out size of seed
+       ALLOCATE(seeds(j))
+       !CALL RANDOM_SEED(get=seeds) ! get system generated seed
+       !WRITE(*,*) seeds            ! writes system generated seed
+       seeds = i
+       CALL RANDOM_SEED(put=seeds) ! set current seed
+       !CALL RANDOM_SEED(get=seeds) ! get current seed
+       !WRITE(*,*) seeds            ! writes 314159265
+       DEALLOCATE(seeds)           
+       
+       CALL Info('ElmerSolver','Random seed initialized to: '//TRIM(I2S(i)),Level=10)
+     END SUBROUTINE InitializeRandomSeed
+
+     
      ! Optionally create extruded mesh on-the-fly.
      !--------------------------------------------------------------------
      SUBROUTINE CreateExtrudedMesh()
@@ -637,6 +666,46 @@ END INTERFACE
      END SUBROUTINE CreateExtrudedMesh
      
 
+     ! Given geometric ratio of timesteps redistribute them so that the ratio
+     ! is met as closely as possible, maintaining total time and sacrificing
+     ! number of timesteps. 
+     !----------------------------------------------------------------------
+     SUBROUTINE GeometricTimesteps(m,n0,dt0,r)
+       INTEGER :: m
+       INTEGER :: n0(:)
+       REAL(KIND=dp) :: dt0(:),r(:)
+
+       INTEGER :: i,n
+       REAL(KIND=dp) :: q
+       LOGICAL :: Visited = .FALSE.
+
+       ! Only do this once since it tampers stuff in lists.
+       IF(Visited) RETURN
+       Visited = .TRUE.
+
+       CALL Info('ElmerSolver','Creating geometric timestepping strategy',Level=6)
+       
+       DO i=1,m
+         ! Some users may give zero ratio, assume that they mean one.
+         IF(ABS(r(i)) < EPSILON(q) ) r(i) = 1.0_dp
+         ! Ratio one means even distribution.
+         IF(ABS(r(i)-1.0) < EPSILON(q) ) CYCLE
+
+         q = 1 + (r(i)-1)/n0(i)
+         n = NINT( LOG(1+(q-1)*n0(i)) / LOG(q) )
+         dt = n0(i)*dt0(i)*(1-q)/(1-q**n)
+         
+         !PRINT *,'ratio:',i,n0(i),dt0(i),r(i),n,dt,q
+
+         ! Replace the new distribution
+         r(i) = q
+         dt0(i) = dt
+         n0(i) = n
+       END DO
+       
+     END SUBROUTINE GeometricTimesteps
+
+     
      ! Initialize intervals for steady state, transient and scanning types.
      !----------------------------------------------------------------------
      SUBROUTINE InitializeIntervals()
@@ -649,18 +718,6 @@ END INTERFACE
            CALL Fatal('ElmerSolver', 'Keyword > Timestep Intervals < MUST be ' //  &
                'defined for transient and scanning simulations' )
          END IF
-
-#if 0
-         IF( ListGetLogical( CurrentModel % Simulation,'Parallel Timestepping',GotIt ) ) THEN
-           DO i=1,SIZE(Timesteps,1)
-             IF( MODULO( Timesteps(i), ParEnv % PEs ) /= 0 ) THEN
-               CALL Fatal('ElmerSolver','"Timestep Intervals" should be divisible by #np')
-             END IF
-             Timesteps(i) = Timesteps(i) / ParEnv % PEs
-           END DO
-           CALL Info('ElmerSolver','Divided timestep intervals equally for each partition!',Level=4)
-         END IF
-#endif
          
          TimestepSizes => ListGetConstRealArray( CurrentModel % Simulation, &
              'Timestep Sizes', GotIt )
@@ -673,12 +730,22 @@ END INTERFACE
                  'defined for time dependent simulations' )
            END IF
          END IF
-
+         
          CoupledMaxIter = ListGetInteger( CurrentModel % Simulation, &
              'Steady State Max Iterations', GotIt, minv=1 )
          IF ( .NOT. GotIt ) CoupledMaxIter = 1
          
          TimeIntervals = SIZE(Timesteps)
+
+         TimestepRatios => ListGetConstRealArray( CurrentModel % Simulation, &
+             'Timestep Ratios', GotTimestepRatios )
+
+         
+         IF ( GotTimestepRatios ) THEN           
+           CALL GeometricTimesteps(TimeIntervals,Timesteps,TimestepSizes(:,1),TimestepRatios(:,1))
+         END IF
+         
+
        ELSE
          ! Steady state
          !------------------------------------------------------------------------------
@@ -716,15 +783,16 @@ END INTERFACE
 
        IF ( FirstLoad ) &
            ALLOCATE( sTime(1), sStep(1), sInterval(1), sSize(1), &
-           steadyIt(1), nonLinit(1), sPrevSizes(1,5), sPeriodic(1), &
-           sPar(1), sScan(1), sSweep(1), sFinish(1), sProduce(1),&
-           sSlice(1), sSliceRatio(1), sSliceWeight(1), sAngle(1), &
+           steadyIt(1), nonLinit(1), sPrevSizes(1,5), sPeriodicTime(1), &
+           sPeriodicCycle(1), sPar(1), sScan(1), sSweep(1), sFinish(1), &
+           sProduce(1),sSlice(1), sSliceRatio(1), sSliceWeight(1), sAngle(1), &
            sAngleVelo(1) )
        
        dt = 0._dp       
        sTime = 0._dp
        sStep = 0
-       sPeriodic = 0._dp
+       sPeriodicTime = 0._dp
+       sPeriodicCycle = 0._dp
        sScan = 0._dp       
        sSize = dt
        sPrevSizes = 0_dp       
@@ -961,21 +1029,120 @@ END INTERFACE
          IF( Success ) PassCount = PassCount + 1
        END DO
       
-
      END SUBROUTINE CompareToReferenceSolution
 
+
+     SUBROUTINE AppendNewSolver(Model,pSolver)
+       TYPE(Model_t) :: Model
+       TYPE(Solver_t), POINTER :: pSolver
+       
+       TYPE(Solver_t), POINTER :: OldSolvers(:),NewSolvers(:)
+       INTEGER :: i, j,j2,j3,n, AllocStat
+       
+       n = Model % NumberOfSolvers+1
+       ALLOCATE( NewSolvers(n), STAT = AllocStat )
+       IF( AllocStat /= 0 ) CALL Fatal('AppendNewSolver','Allocation error 1')
+
+       OldSolvers => Model % Solvers
+       
+       CALL Info('AppendNewSolver','Increasing number of solvers to: '&
+           //TRIM(I2S(n)),Level=8)
+       DO i=1,n-1
+         ! Def_Dofs is the only allocatable structure within Solver_t:
+         IF( ALLOCATED( OldSolvers(i) % Def_Dofs ) ) THEN
+           j = SIZE(OldSolvers(i) % Def_Dofs,1)
+           j2 = SIZE(OldSolvers(i) % Def_Dofs,2)
+           j3 = SIZE(OldSolvers(i) % Def_Dofs,3)
+           ALLOCATE( NewSolvers(i) % Def_Dofs(j,j2,j3), STAT = AllocStat )
+           IF( AllocStat /= 0 ) CALL Fatal('AppendNewSolver','Allocation error 2')           
+         END IF
+
+         ! Copy the content of the Solver structure
+         NewSolvers(i) = OldSolvers(i)
+
+         ! Nullify the old structure since otherwise bad things may happen at deallocation
+         NULLIFY( OldSolvers(i) % ActiveElements )
+         NULLIFY( OldSolvers(i) % Mesh )
+         NULLIFY( OldSolvers(i) % BlockMatrix )
+         NULLIFY( OldSolvers(i) % Matrix )
+         NULLIFY( OldSolvers(i) % Variable )
+       END DO
+
+       ! Deallocate the old structure and set the pointer to the new one
+       DEALLOCATE( Model % Solvers )
+       Model % Solvers => NewSolvers
+       Model % NumberOfSolvers = n
+
+       pSolver => NewSolvers(n)
+
+       NULLIFY( pSolver % Matrix )
+       NULLIFY( pSolver % Mesh ) 
+       NULLIFY( pSOlver % BlockMatrix )
+       NULLIFY( pSolver % Variable )
+       NULLIFY( pSolver % ActiveElements )
+       
+       pSolver % PROCEDURE = 0
+       pSolver % NumberOfActiveElements = 0
+       j = CurrentModel % NumberOfBodies
+       ALLOCATE( pSolver % Def_Dofs(10,j,6),STAT=AllocStat)       
+       IF( AllocStat /= 0 ) CALL Fatal('AppendNewSolver','Allocation error 3')
+       pSolver % Def_Dofs = -1
+       pSolver % Def_Dofs(:,:,1) =  1
+       
+       ! Create empty list to add some keywords to 
+       pSolver % Values => ListAllocate()
+       
+     END SUBROUTINE AppendNewSolver
      
 
+     !------------------------------------------------------------------------------
+     FUNCTION FindSolverByProcName(Model,ProcName) RESULT (solver_id)
+       IMPLICIT NONE
 
+       TYPE(Model_t), POINTER :: Model
+       CHARACTER(*) :: ProcName
+       INTEGER :: solver_id
+       
+       LOGICAL :: Found
+       INTEGER :: i,j
+       TYPE(Solver_t), POINTER :: pSolver
+       CHARACTER(LEN=MAX_NAME_LEN) :: str
+
+       solver_id = 0       
+       Found = .FALSE.
+
+       !PRINT *,'procname:',TRIM(ProcName)
+       
+       DO i=1, Model % NumberOfSolvers
+         pSolver => CurrentModel % Solvers(i)
+         str = ListGetString(pSolver % Values,'Procedure',Found)
+         IF(.NOT. Found) CYCLE
+
+         !PRINT *,'str:',i,TRIM(str)
+         
+         j = INDEX(str,ProcName)         
+         IF( j > 0 ) THEN
+           solver_id = i
+           EXIT
+         END IF
+       END DO
+
+       !PRINT *,'j:',j,solver_id
+       
+     END FUNCTION FindSolverByProcName
+     !------------------------------------------------------------------------------
+
+
+     
      ! This is a dirty hack that adds an instance of ResultOutputSolver to the list of Solvers.
      ! The idea is that it is much easier for the end user to take into use the vtu output this way.
      ! The solver itself has limited set of parameters needed and is therefore approapriate for this
      ! kind of hack. It can of course be also added as a regular solver also.
      !----------------------------------------------------------------------------------------------
      SUBROUTINE AddVtuOutputSolverHack()     
-       TYPE(Solver_t), POINTER :: ABC(:), PSolver
+       TYPE(Solver_t), POINTER :: pSolver
        CHARACTER(LEN=MAX_NAME_LEN) :: str
-       INTEGER :: i,j,j2,j3,k,n
+       INTEGER :: j,k
        TYPE(ValueList_t), POINTER :: Params, Simu
        LOGICAL :: Found, VtuFormat
        INTEGER :: AllocStat
@@ -987,7 +1154,6 @@ END INTERFACE
        
        k = INDEX( str,'.vtu' )
        VtuFormat = ( k /= 0 ) 
-
        IF(.NOT. VtuFormat ) RETURN
 
        ! No use to create the same solver twice
@@ -996,58 +1162,22 @@ END INTERFACE
        
        CALL Info('AddVtuOutputSolverHack','Adding ResultOutputSolver to write VTU output in file: '&
            //TRIM(str(1:k-1)))
-       
+
+       j = FindSolverByProcName(CurrentModel,'ResultOutputSolver')
+       IF(j>0) THEN
+         CALL Warn('AddVtuOutputSolverHack','ResultOutputSolver instance already exists, doing nothing!')
+         RETURN
+       END IF
+              
+       ! Remove the post file from the simulation list as it will be dealt by the solver section
        CALL ListRemove( Simu,'Post File')
-       n = CurrentModel % NumberOfSolvers+1
-       ALLOCATE( ABC(n), STAT = AllocStat )
-       IF( AllocStat /= 0 ) CALL Fatal('AddVtuOutputSolverHack','Allocation error 1')
+
+       ! Allocate one new solver to the end of list and get pointer to it
+       CALL AppendNewSolver(CurrentModel,pSolver)
        
-       CALL Info('AddVtuOutputSolverHack','Increasing number of solver to: '&
-           //TRIM(I2S(n)),Level=8)
-       DO i=1,n-1
-         ! Def_Dofs is the only allocatable structure within Solver_t:
-         IF( ALLOCATED( CurrentModel % Solvers(i) % Def_Dofs ) ) THEN
-           j = SIZE(CurrentModel % Solvers(i) % Def_Dofs,1)
-           j2 = SIZE(CurrentModel % Solvers(i) % Def_Dofs,2)
-           j3 = SIZE(CurrentModel % Solvers(i) % Def_Dofs,3)
-           ALLOCATE( ABC(i) % Def_Dofs(j,j2,j3), STAT = AllocStat )
-           IF( AllocStat /= 0 ) CALL Fatal('AddVtuOutputSolverHack','Allocation error 2')           
-         END IF
-
-         ! Copy the content of the Solver structure
-         ABC(i) = CurrentModel % Solvers(i)
-
-         ! Nullify the old structure since otherwise bad things may happen at deallocation
-         NULLIFY( CurrentModel % Solvers(i) % ActiveElements )
-         NULLIFY( CurrentModel % Solvers(i) % Mesh )
-         NULLIFY( CurrentModel % Solvers(i) % BlockMatrix )
-         NULLIFY( CurrentModel % Solvers(i) % Matrix )
-         NULLIFY( CurrentModel % Solvers(i) % Variable )
-       END DO
-
-       ! Deallocate the old structure and set the pointer to the new one
-       DEALLOCATE( CurrentModel % Solvers )
-       CurrentModel % Solvers => ABC
-       CurrentModel % NumberOfSolvers = n
-
        ! Now create the ResultOutputSolver instance on-the-fly
-       CurrentModel % Solvers(n) % PROCEDURE = 0
-       NULLIFY( CurrentModel % Solvers(n) % Matrix )
-       NULLIFY( CurrentModel % Solvers(n) % BlockMatrix )
-       NULLIFY( CurrentModel % Solvers(n) % Variable )
-       NULLIFY( CurrentModel % Solvers(n) % ActiveElements )
-       CurrentModel % Solvers(n) % NumberOfActiveElements = 0
-       j = CurrentModel % NumberOfBodies
-       ALLOCATE( CurrentModel % Solvers(n) % Def_Dofs(10,j,6),STAT=AllocStat)       
-       IF( AllocStat /= 0 ) CALL Fatal('AddVtuOutputSolverHack','Allocation error 3')
-       CurrentModel % Solvers(n) % Def_Dofs = -1
-       CurrentModel % Solvers(n) % Def_Dofs(:,:,1) =  1
-       
-       ! Add some keywords to the list
-       CurrentModel % Solvers(n) % Values => ListAllocate()
-       Params => CurrentModel % Solvers(n) % Values
-       CALL ListAddString( Params,&
-           'Procedure', 'ResultOutputSolve ResultOutputSolver',.FALSE.)
+       Params => pSolver % Values
+       CALL ListAddString(Params,'Procedure', 'ResultOutputSolve ResultOutputSolver',.FALSE.)
        CALL ListAddString(Params,'Equation','InternalVtuOutputSolver')
        CALL ListAddString(Params,'Output Format','vtu')
        CALL ListAddString(Params,'Output File Name',str(1:k-1),.FALSE.)
@@ -1069,7 +1199,7 @@ END INTERFACE
      SUBROUTINE AddSaveScalarsHack()     
        TYPE(Solver_t), POINTER :: ABC(:), PSolver
        CHARACTER(LEN=MAX_NAME_LEN) :: str
-       INTEGER :: i,j,j2,j3,k,n
+       INTEGER :: k
        TYPE(ValueList_t), POINTER :: Params, Simu
        LOGICAL :: Found, VtuFormat
        INTEGER :: AllocStat
@@ -1085,56 +1215,19 @@ END INTERFACE
        
        CALL Info('AddSaveScalarsHack','Adding SaveScalars solver to write scalars into file: '&
            //TRIM(str))
+
+       k = FindSolverByProcName(CurrentModel,'SaveScalars')
+       IF(k>0) THEN
+         CALL Warn('AddSaveScalarsHack','SaveScalars instance already exists, doing nothing!')
+         RETURN
+       END IF
        
-       n = CurrentModel % NumberOfSolvers+1
-       ALLOCATE( ABC(n), STAT = AllocStat )
-       IF( AllocStat /= 0 ) CALL Fatal('AddSaveScalarsHack','Allocation error 1')
-       
-       CALL Info('AddSaveScalarsHack','Increasing number of solver to: '&
-           //TRIM(I2S(n)),Level=8)
-       DO i=1,n-1
-         ! Def_Dofs is the only allocatable structure within Solver_t:
-         IF( ALLOCATED( CurrentModel % Solvers(i) % Def_Dofs ) ) THEN
-           j = SIZE(CurrentModel % Solvers(i) % Def_Dofs,1)
-           j2 = SIZE(CurrentModel % Solvers(i) % Def_Dofs,2)
-           j3 = SIZE(CurrentModel % Solvers(i) % Def_Dofs,3)
-           ALLOCATE( ABC(i) % Def_Dofs(j,j2,j3), STAT = AllocStat )
-           IF( AllocStat /= 0 ) CALL Fatal('AddVtuOutputSolverHack','Allocation error 2')           
-         END IF
-
-         ! Copy the content of the Solver structure
-         ABC(i) = CurrentModel % Solvers(i)
-
-         ! Nullify the old structure since otherwise bad things may happen at deallocation
-         NULLIFY( CurrentModel % Solvers(i) % ActiveElements )
-         NULLIFY( CurrentModel % Solvers(i) % Mesh )
-         NULLIFY( CurrentModel % Solvers(i) % BlockMatrix )
-         NULLIFY( CurrentModel % Solvers(i) % Matrix )
-         NULLIFY( CurrentModel % Solvers(i) % Variable )
-       END DO
-
-       ! Deallocate the old structure and set the pointer to the new one
-       DEALLOCATE( CurrentModel % Solvers )
-       CurrentModel % Solvers => ABC
-       CurrentModel % NumberOfSolvers = n
-
-       ! Now create the ResultOutputSolver instance on-the-fly
-       CurrentModel % Solvers(n) % PROCEDURE = 0
-       NULLIFY( CurrentModel % Solvers(n) % Matrix )
-       NULLIFY( CurrentModel % Solvers(n) % BlockMatrix )
-       NULLIFY( CurrentModel % Solvers(n) % Variable )
-       NULLIFY( CurrentModel % Solvers(n) % ActiveElements )
-       CurrentModel % Solvers(n) % NumberOfActiveElements = 0
-       j = CurrentModel % NumberOfBodies
-       ALLOCATE( CurrentModel % Solvers(n) % Def_Dofs(10,j,6),STAT=AllocStat)       
-       IF( AllocStat /= 0 ) CALL Fatal('AddSaveScalarsHack','Allocation error 3')
-       CurrentModel % Solvers(n) % Def_Dofs = -1
-       CurrentModel % Solvers(n) % Def_Dofs(:,:,1) =  1
+       ! Allocate one new solver to the end of list and get pointer to it
+       CALL AppendNewSolver(CurrentModel,pSolver)
        
        ! Add some keywords to the list
-       CurrentModel % Solvers(n) % Values => ListAllocate()
-       Params => CurrentModel % Solvers(n) % Values
-       CALL ListAddString( Params,'Procedure', 'SaveData SaveScalars',.FALSE.)
+       Params => pSolver % Values
+       CALL ListAddString(Params,'Procedure', 'SaveData SaveScalars',.FALSE.)
        CALL ListAddString(Params,'Equation','InternalSaveScalars')
        CALL ListAddString(Params,'Filename',TRIM(str),.FALSE.)
        CALL ListAddString(Params,'Exec Solver','after saving')
@@ -1238,7 +1331,6 @@ END INTERFACE
              Name='Coordinate 3',DOFs=1,Values=Mesh % Nodes % z )
 
        CALL VariableAdd( Mesh % Variables, Mesh, Name='Time',DOFs=1, Values=sTime )
-       CALL VariableAdd( Mesh % Variables, Mesh, Name='Periodic Time',DOFs=1, Values=sPeriodic )
        CALL VariableAdd( Mesh % Variables, Mesh, Name='Timestep', DOFs=1, Values=sStep )
        CALL VariableAdd( Mesh % Variables, Mesh, Name='Timestep size', DOFs=1, Values=sSize )
        CALL VariableAdd( Mesh % Variables, Mesh, Name='Timestep interval', DOFs=1, Values=sInterval )
@@ -1252,9 +1344,14 @@ END INTERFACE
        CALL VariableAdd( Mesh % Variables, Mesh, &
                Name='coupled iter', DOFs=1, Values=steadyIt )
 
-       ! For periodic systems we may do several cycles.
-       ! After convergence is reached we may start producing the results.
-       IF( ListCheckPresent( CurrentModel % Simulation,'Periodic Timesteps') ) THEN
+
+       IF( ListCheckPrefix( CurrentModel % Simulation,'Periodic Time') .OR. &
+           ListCheckPresent( CurrentModel % Simulation,'Time Period') ) THEN
+         ! For periodic systems we may do several cycles.
+         CALL VariableAdd( Mesh % Variables, Mesh, Name='Periodic Time',DOFs=1, Values=sPeriodicTime )
+         CALL VariableAdd( Mesh % Variables, Mesh, Name='Periodic Cycle',DOFs=1, Values=sPeriodicCycle )      
+         
+         ! After convergence is reached we may start producing the results.         
          CALL VariableAdd( Mesh % Variables, Mesh, Name='Finish',DOFs=1, Values=sFinish )
          CALL VariableAdd( Mesh % Variables, Mesh, Name='Produce',DOFs=1, Values=sProduce )         
        END IF
@@ -1293,7 +1390,8 @@ END INTERFACE
            
            CALL Info('AddMeshCoordinatesAndTime','Adding partitioning also as a field')
            
-           n = Mesh % NumberOfBulkElements
+           n = Mesh % NumberOfBulkElements + Mesh % NumberOfBoundaryElements
+
            NULLIFY( PartField, PartPerm )
            ALLOCATE( PartField(n), PartPerm(n) )
            DO i=1,n
@@ -2179,7 +2277,7 @@ END INTERFACE
      REAL(KIND=dp) :: newtime, prevtime=0, maxtime, exitcond
      INTEGER, SAVE :: PrevMeshI = 0
      INTEGER :: nPeriodic, nSlices, nTimes, iSlice, iTime
-     LOGICAL :: ParallelTime, ParallelSlices
+     LOGICAL :: ParallelTime, ParallelSlices, IsPeriodic
      
      !$OMP PARALLEL
      IF(.NOT.GaussPointsInitialized()) CALL GaussPointsInit()
@@ -2284,7 +2382,8 @@ END INTERFACE
        CALL Info('ExecSimulation','Divided timestep intervals equally for each partition!',Level=4)
      END IF
 
-
+     IsPeriodic = ListCheckPrefix( CurrentModel % Simulation,'Periodic Time') .OR. &
+         ListCheckPresent( CurrentModel % Simulation,'Time Period' )
      
      nPeriodic = ListGetInteger( CurrentModel % Simulation,'Periodic Timesteps',GotIt )
      IF( ParallelTime ) THEN
@@ -2390,8 +2489,16 @@ END INTERFACE
                WRITE(Message,'(A,ES12.3)') 'Timestep smaller than epsilon: ',dt
                CALL Fatal('ExecSimulation', Message)
              END IF             
-           ELSE
+           ELSE 
              dt = TimestepSizes(interval,1)
+             IF( GotTimestepRatios ) THEN
+               BLOCK 
+                 REAL(KIND=dp) :: q
+                 q = TimestepRatios(interval,1)
+                 IF( ABS(1-q) > EPSILON(q) ) dt = dt * q**(timestep-1)
+               END BLOCK
+             END IF
+             
            END IF
          END IF
 
@@ -2459,12 +2566,12 @@ END INTERFACE
              timePeriod = nPeriodic * dt           
            END IF
          END IF
-                  
-         sPeriodic(1) = sTime(1)         
-         DO WHILE(sPeriodic(1) > timePeriod)
-           sPeriodic(1) = sPeriodic(1) - timePeriod 
-         END DO
-         
+
+         IF( isPeriodic ) THEN
+           sPeriodicCycle(1) = sTime(1) / timePeriod 
+           sPeriodicTime(1) = MODULO( sTime(1), timePeriod )
+         END IF
+           
          ! Move the old timesteps one step down the ladder
          IF(timestep > 1 .OR. interval > 1) THEN
            DO i = SIZE(sPrevSizes,2),2,-1
@@ -2476,7 +2583,6 @@ END INTERFACE
 
          sInterval(1) = interval
          IF (.NOT. Transient ) steadyIt(1) = steadyIt(1) + 1
-
 
 !-----------------------------------------------------------------------------
          IF( ListCheckPresent( CurrentModel % Simulation,'Rotor Angle') ) THEN

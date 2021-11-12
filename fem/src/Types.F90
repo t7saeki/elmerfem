@@ -136,18 +136,26 @@ MODULE Types
   TYPE SubMatrix_t
     TYPE(Matrix_t), POINTER :: Mat
     TYPE(Matrix_t), POINTER :: PrecMat
+    LOGICAL :: ParallelSquareMatrix = .TRUE.
+    LOGICAL :: ParallelIsolatedMatrix = .FALSE.
+    INTEGER, POINTER :: ParPerm(:) => NULL()
   END TYPE SubMatrix_t
 
   TYPE BlockMatrix_t
     INTEGER :: NoVar = 0, MaxSize, TotSize
-    INTEGER, POINTER :: Offset(:)
-    TYPE(Solver_t), POINTER :: Solver
+    INTEGER, POINTER :: Offset(:) => NULL()
+    INTEGER, POINTER :: ParOffset(:) => NULL()
+    INTEGER, POINTER :: BlockPerm(:) => NULL()
+    INTEGER, POINTER :: ParBlockPerm(:) => NULL()
+    INTEGER, POINTER :: ParPerm(:) => NULL()
+    TYPE(Solver_t), POINTER :: Solver => NULL()
     REAL(KIND=dp) :: rnorm, bnorm, xnorm
     TYPE(SubMatrix_t), ALLOCATABLE :: SubMatrix(:,:)
     LOGICAL, ALLOCATABLE :: SubMatrixActive(:,:)
     TYPE(SubVector_t), POINTER :: SubVector(:) => NULL()
-    INTEGER, POINTER :: BlockStruct(:)
-    INTEGER, POINTER :: InvBlockStruct(:)
+    INTEGER, POINTER :: BlockStruct(:) => NULL()
+    INTEGER, POINTER :: InvBlockStruct(:) => NULL()
+    TYPE(Matrix_t), POINTER :: ParentMatrix => NULL()
     LOGICAL :: GotBlockStruct
     LOGICAL, ALLOCATABLE :: SubMatrixTranspose(:,:)
   END TYPE BlockMatrix_t
@@ -376,7 +384,7 @@ MODULE Types
 
 !------------------------------------------------------------------------------
    TYPE ValueListEntry_t
-     INTEGER :: TYPE
+     INTEGER :: Type
      TYPE(ValueListEntry_t), POINTER :: Next => Null()
 
      REAL(KIND=dp), POINTER :: TValues(:), Cumulative(:) => NULL()
@@ -400,7 +408,6 @@ MODULE Types
 
 #ifdef HAVE_LUA
      LOGICAL :: LuaFun = .FALSE.
-     !CHARACTER(len=:), ALLOCATABLE :: LuaCmd
 #endif
      
    END TYPE ValueListEntry_t
@@ -488,16 +495,15 @@ MODULE Types
 !------------------------------------------------------------------------------
 
    TYPE BoundaryConditionArray_t
-     INTEGER :: Type=0,Tag=0
+     INTEGER :: Tag=0
      TYPE(Matrix_t), POINTER :: PMatrix => NULL()
-     LOGICAL :: PMatrixGalerkin = .FALSE.
      TYPE(ValueList_t), POINTER :: Values => Null()
    END TYPE BoundaryConditionArray_t
 
 !------------------------------------------------------------------------------
 
    TYPE InitialConditionArray_t
-     INTEGER :: TYPE=0,Tag=0
+     INTEGER :: Tag=0
      TYPE(ValueList_t), POINTER :: Values => Null()
    END TYPE InitialConditionArray_t
 
@@ -533,10 +539,6 @@ MODULE Types
 
 !------------------------------------------------------------------------------
 
-!   TYPE SimulationInfo_t
-!     TYPE(ValueList_t) :: Values => Null()
-!   END TYPE SimulationInfo_t
-
 !------------------------------------------------------------------------------
    INTEGER, PARAMETER :: Variable_on_nodes  = 0
    INTEGER, PARAMETER :: Variable_on_edges  = 1
@@ -546,8 +548,7 @@ MODULE Types
    INTEGER, PARAMETER :: Variable_on_elements = 5
    INTEGER, PARAMETER :: Variable_global = 6
 
-   
-   
+    
    TYPE IntegrationPointsTable_t
      INTEGER :: IPCount = 0
      INTEGER, POINTER :: IPOffset(:)
@@ -555,11 +556,6 @@ MODULE Types
    END TYPE IntegrationPointsTable_t
       
    
-!  TYPE Variable_Component_t
-!     CHARACTER(LEN=MAX_NAME_LEN) :: Name
-!     INTEGER :: DOFs, Type
-!  END TYPE Variable_Component_t
-
    TYPE Variable_t
      TYPE(Variable_t), POINTER :: Next => NULL()
      TYPE(Variable_t), POINTER :: EVar => NULL() 
@@ -737,7 +733,7 @@ MODULE Types
 
    TYPE ParallelInfo_t
      INTEGER :: NumberOfIfDOFs
-     LOGICAL, POINTER               :: INTERFACE(:)
+     LOGICAL, POINTER               :: NodeInterface(:)
      INTEGER, POINTER               :: GlobalDOFs(:)
      TYPE(NeighbourList_t),POINTER  :: NeighbourList(:)
      INTEGER, POINTER               :: Gorder(:) => NULL()
@@ -824,15 +820,7 @@ MODULE Types
      REAL(KIND=dp), POINTER :: dBasisdx(:,:) => NULL()
      REAL(KIND=dp) :: Weight = 0.0_dp
    END TYPE TabulatedBasisAtIp_t
-
    
-!------------------------------------------------------------------------------
-
-!   TYPE Constants_t
-!     REAL(KIND=dp) :: Gravity(4)
-!     REAL(KIND=dp) :: StefanBoltzmann
-!   END TYPE Constants_t
-
 !------------------------------------------------------------------------------
 
     TYPE Solver_t
@@ -871,7 +859,8 @@ MODULE Types
       LOGICAL :: MortarBCsChanged = .FALSE., ConstraintMatrixVisited = .FALSE.
       INTEGER(KIND=AddrInt) :: BoundaryElementProcedure=0, BulkElementProcedure=0
 
-      TYPE(Graph_t), POINTER :: ColourIndexList => NULL(), BoundaryColourIndexList => NULL()
+      TYPE(Graph_t), POINTER :: ColourIndexList => NULL()
+      TYPE(Graph_t), POINTER :: BoundaryColourIndexList => NULL()
       INTEGER :: CurrentColour = 0, CurrentBoundaryColour = 0
       INTEGER :: DirectMethod = DIRECT_NORMAL
       LOGICAL :: GlobalBubbles = .FALSE., DG = .FALSE.

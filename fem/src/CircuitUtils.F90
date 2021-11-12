@@ -250,22 +250,23 @@ CONTAINS
 !------------------------------------------------------------------------------
 
 !------------------------------------------------------------------------------
-  FUNCTION FindSolverWithKey(key, char_len) RESULT (Solver)
+  FUNCTION FindSolverWithKey(key) RESULT (Solver)
 !------------------------------------------------------------------------------
     IMPLICIT NONE
     
+    CHARACTER(*) :: key
+
     LOGICAL :: Found
-    INTEGER :: i, char_len
+    INTEGER :: i
     TYPE(Solver_t), POINTER :: Solver
-    CHARACTER(char_len) :: key
     
     ! Look for the solver we attach the circuit equations to:
     ! -------------------------------------------------------
-    Found = .False.
+    Found = .FALSE.
     DO i=1, CurrentModel % NumberOfSolvers
       Solver => CurrentModel % Solvers(i)
       IF(ListCheckPresent(Solver % Values, key)) THEN 
-        Found = .True. 
+        Found = .TRUE. 
         EXIT
       END IF
     END DO
@@ -277,6 +278,10 @@ CONTAINS
   END FUNCTION FindSolverWithKey
 !------------------------------------------------------------------------------
 
+
+
+
+  
 END MODULE CircuitUtils
 
 
@@ -301,10 +306,20 @@ CONTAINS
     CALL Matc( cmd, name, slen )
     READ(name(1:slen), *) n_Circuits
     
-    CurrentModel%n_Circuits = n_Circuits
-    
-    ALLOCATE( CurrentModel%Circuits(n_Circuits) )
+    CurrentModel % n_Circuits = n_Circuits
 
+    IF( ASSOCIATED( CurrentModel % Circuits ) ) THEN
+      IF( SIZE( CurrentModel % Circuits ) == n_Circuits ) THEN
+        CALL Info('AllocateCircuitList','Circuit list already allocated!')
+      ELSE
+        CALL Warn('AllocateCircuitList','Circuit of wrong size already allocated, deallocating this!')
+      END IF
+    END IF
+
+    IF(.NOT. ASSOCIATED(CurrentModel % Circuits ) ) THEN
+      ALLOCATE( CurrentModel % Circuits(n_Circuits) )
+    END IF
+      
 !------------------------------------------------------------------------------
   END SUBROUTINE AllocateCircuitsList
 !------------------------------------------------------------------------------
@@ -318,7 +333,7 @@ CONTAINS
     CHARACTER(LEN=MAX_NAME_LEN) :: name,cmd
     TYPE(Circuit_t), POINTER :: Circuit
     
-    Circuit => CurrentModel%Circuits(CId)
+    Circuit => CurrentModel % Circuits(CId)
     
     nofc = 0
     
@@ -347,7 +362,7 @@ CONTAINS
     nofc = 0
     ComponentIDs = -1
     
-    Circuit => CurrentModel%Circuits(CId)
+    Circuit => CurrentModel % Circuits(CId)
     
    
     DO i=1,Circuit % n
@@ -465,7 +480,7 @@ END FUNCTION isComponentName
     CHARACTER(LEN=MAX_NAME_LEN) :: cmd, name
     TYPE(Circuit_t), POINTER :: Circuit
 
-    Circuit => CurrentModel%Circuits(CId)
+    Circuit => CurrentModel % Circuits(CId)
     
     cmd = 'C.'//TRIM(i2s(CId))//'.variables'
     slen = LEN_TRIM(cmd)
@@ -488,7 +503,7 @@ END FUNCTION isComponentName
     CHARACTER(LEN=MAX_NAME_LEN) :: cmd, name
     TYPE(Circuit_t), POINTER :: Circuit
 
-    Circuit => CurrentModel%Circuits(CId)
+    Circuit => CurrentModel % Circuits(CId)
     
     n = Circuit % n
     
@@ -571,7 +586,7 @@ END FUNCTION isComponentName
     TYPE(Valuelist_t), POINTER :: CompParams
     LOGICAL :: Found
 
-    Circuit => CurrentModel%Circuits(CId)
+    Circuit => CurrentModel % Circuits(CId)
     
     Circuit % CvarDofs = 0
     DO CompInd=1,Circuit % n_comp
@@ -805,7 +820,7 @@ END FUNCTION isComponentName
     INTEGER :: Owner=-1, k
     INTEGER, POINTER :: circuit_tot_n => Null()
     
-    Circuit_tot_n => CurrentModel%Circuit_tot_n
+    Circuit_tot_n => CurrentModel % Circuit_tot_n
     
     IF(k==1) THEN
       IF(Owner<=0) Owner = MAX(Parenv % PEs/2,1)
@@ -851,7 +866,7 @@ END FUNCTION isComponentName
     TYPE(Valuelist_t), POINTER :: CompParams
     INTEGER :: CId, CompInd
     
-    Circuit => CurrentModel%Circuits(CId)
+    Circuit => CurrentModel % Circuits(CId)
     
     DO CompInd=1,Circuit % n_comp
  
@@ -880,7 +895,7 @@ END FUNCTION isComponentName
     TYPE(CircuitVariable_t), POINTER :: CVar
     INTEGER :: CId, i
     
-    Circuit => CurrentModel%Circuits(CId)
+    Circuit => CurrentModel % Circuits(CId)
     ! add variables that are not associated to components
     DO i=1,Circuit % n
       Cvar => Circuit % CircuitVariables(i)
@@ -899,7 +914,7 @@ END FUNCTION isComponentName
     INTEGER :: CId,n
     TYPE(Circuit_t), POINTER :: Circuit
 
-    Circuit => CurrentModel%Circuits(CId)
+    Circuit => CurrentModel % Circuits(CId)
     n = Circuit % n
 
     ! Read in the coefficient matrices for the circuit equations:
@@ -929,7 +944,7 @@ END FUNCTION isComponentName
     CHARACTER(LEN=MAX_NAME_LEN) :: cmd, name
     TYPE(Circuit_t), POINTER :: Circuit
 
-    Circuit => CurrentModel%Circuits(CId)
+    Circuit => CurrentModel % Circuits(CId)
     n = Circuit % n
 
     DO i=1,n
@@ -955,7 +970,7 @@ END FUNCTION isComponentName
     CHARACTER(LEN=MAX_NAME_LEN) :: cmd, name
     TYPE(Circuit_t), POINTER :: Circuit
 
-    Circuit => CurrentModel%Circuits(CId)
+    Circuit => CurrentModel % Circuits(CId)
     n = Circuit % n
     DO i=1,n
       ! Names of the source functions, these functions should be found
@@ -980,7 +995,7 @@ END FUNCTION isComponentName
     TYPE(CircuitVariable_t), POINTER :: Cvar
     COMPLEX(KIND=dp), PARAMETER :: im = (0._dp,1._dp)
   
-    Circuit => CurrentModel%Circuits(CId)
+    Circuit => CurrentModel % Circuits(CId)
     n = Circuit % n
 
     DO i=1,n
@@ -1149,6 +1164,126 @@ END FUNCTION isComponentName
    END FUNCTION HasSupport
 !------------------------------------------------------------------------------
 
+
+!------------------------------------------------------------------------------
+! Create a standard variable associated to the mesh that may be use for dependencies.
+!------------------------------------------------------------------------------
+  SUBROUTINE Circuits_ToMeshVariable(Solver,crt)
+    
+    TYPE(Solver_t) :: Solver
+    REAL(KIND=dp) :: Crt(:)
+
+    TYPE(Circuit_t), POINTER :: Circuit
+    TYPE(CircuitVariable_t), POINTER :: CVar
+    TYPE(Variable_t), POINTER :: Var, VarIm
+    INTEGER :: p,i,n,nv,ni,m,iv,nsize
+    CHARACTER(LEN=MAX_NAME_LEN) :: CrtName,VarName,VarnameIm
+    TYPE(Mesh_t), POINTER :: Mesh
+    LOGICAL :: Found 
+    
+    IF( .NOT. ListGetLogical( Solver % Values,'Export Circuit Variables',Found ) ) RETURN
+    
+
+    CALL Info('Circuit_ToMeshVariable','Adding circuit variables to be mesh variables')
+    
+    Mesh => Solver % Mesh
+            
+    DO p=1,CurrentModel % n_Circuits
+      CALL Info('Circuit_ToMeshVariable','Adding circuit: '//TRIM(I2S(p)),Level=12)
+
+      Circuit => CurrentModel % Circuits(p)
+
+      n = Circuit % n
+      
+      IF( CurrentModel % n_Circuits == 1) THEN
+        crtName = 'crt'
+      ELSE
+        crtName = 'crt '//TRIM(I2S(p))
+      END IF
+    
+      ! Count the v and i variables of the circuit.
+      nv = 0; ni = 0
+      DO i=1,n
+        Cvar => Circuit % CircuitVariables(i)
+        IF(Cvar % isIvar ) nv = nv + 1
+        IF(Cvar % isVvar) ni = ni + 1
+      END DO
+      
+      IF( nv + ni == 0 ) THEN
+        CALL Warn('Circuits_ToMeshVariable','No voltage or current variables exists!')
+        CYCLE
+      END IF
+      
+
+      ! Go first through currents and then through voltages    
+      DO iv=1,2      
+        IF( Circuit % Harmonic ) THEN
+          IF(iv==1) THEN
+            varname =  TRIM(crtname)//' i re'
+            varnameim =  TRIM(crtname)//' i im'
+          ELSE
+            varname = TRIM(crtname)//' v re'
+            varnameim = TRIM(crtname)//' v im'
+          END IF
+        ELSE
+          IF(iv==1) THEN
+            varname =  TRIM(crtname)//' i'
+          ELSE
+            varname = TRIM(crtname)//' v'
+          END IF
+        END IF
+        
+        IF(iv==1) THEN
+          nsize = ni
+        ELSE
+          nsize = nv
+        END IF
+                
+        ! Get variable, if variable does not exist then we create here on-the-fly
+        Var => VariableGet( Mesh % Variables,varname)
+        IF(.NOT. ASSOCIATED( Var ) ) THEN
+          CALL Info('Circuits_ToMeshVariable','Creating variable: '//TRIM(varname))
+          CALL VariableAddVector( Mesh % Variables, Mesh, Solver,&
+              varname,dofs=nsize,global=.TRUE.)
+          Var => VariableGet( Mesh % Variables,varname)
+        END IF
+        CALL Info('Circuts_toMeshVariable','Filling variable: '//TRIM(VarName),Level=20)
+
+        IF( Circuit % Harmonic ) THEN
+          VarIm => VariableGet( Mesh % Variables,varnameim)
+          IF(.NOT. ASSOCIATED( VarIm ) ) THEN
+            CALL Info('Circuits_ToMeshVariable','Creating variable: '//TRIM(varnameim))
+            CALL VariableAddVector( Mesh % Variables, Mesh, Solver,&
+                varnameim,dofs=nsize,global=.TRUE.)
+            VarIm => VariableGet( Mesh % Variables,varnameim)
+          END IF
+          CALL Info('Circuts_toMeshVariable','Filling variable: '//TRIM(VarNameim),Level=20)
+       END IF
+          
+        
+        ! Fill the currents or voltages
+        m = 0
+        DO i=1,n
+          Cvar => Circuit % CircuitVariables(i)
+          
+          IF(iv==1 .AND. .NOT. CVar % isIvar ) CYCLE          
+          IF(iv==2 .AND. .NOT. Cvar % isVvar) CYCLE
+          
+          CALL Info('Circuts_toMeshVariable','Inserting variable '//TRIM(I2S(CVar % ValueId))//': '&
+              //TRIM(Circuit % names(i)),Level=20)
+                    
+          m = m + 1
+          Var % Values(m) = crt(Cvar % ValueId)          
+          IF(Circuit % Harmonic) THEN
+            VarIm % Values(m) = crt(Cvar % ImValueId)
+          END IF
+        END DO
+      END DO
+    END DO
+          
+  END SUBROUTINE Circuits_ToMeshVariable
+
+   
 END MODULE CircuitsMod
 
 MODULE CircMatInitMod
@@ -1171,11 +1306,11 @@ CONTAINS
                cnt(Parenv % PEs), r_cnt(ParEnv % PEs), &
                RowId, nn, l, k, n_Circuits
     
-    CM => CurrentModel%CircuitMatrix
+    CM => CurrentModel % CircuitMatrix
     ASolver => CurrentModel % Asolver
     IF (.NOT.ASSOCIATED(ASolver)) CALL Fatal('SetCircuitsParallelInfo','ASolver not found!')
     nm = ASolver % Matrix % NumberOfRows
-    Circuit_tot_n = CurrentModel%Circuit_tot_n
+    Circuit_tot_n = CurrentModel % Circuit_tot_n
     Circuits => CurrentModel % Circuits
     n_Circuits = CurrentModel % n_Circuits
     
@@ -1817,11 +1952,11 @@ CONTAINS
     LOGICAL :: dofsdone
     LOGICAL*1, ALLOCATABLE :: Done(:)
     REAL(KIND=dp), POINTER CONTIG :: Values(:)
-    LOGICAL :: Parallel 
+    LOGICAL :: Parallel, Found
     
     ASolver => CurrentModel % Asolver
     IF (.NOT.ASSOCIATED(ASolver)) CALL Fatal('Circuits_MatrixInit','ASolver not found!')
-    Circuit_tot_n = CurrentModel%Circuit_tot_n
+    Circuit_tot_n = CurrentModel % Circuit_tot_n
     
     ! Initialize Circuit matrix:
     ! -----------------------------
@@ -1829,7 +1964,7 @@ CONTAINS
     nm =  Asolver % Matrix % NumberOfRows
 
     CM => AllocateMatrix()
-    CurrentModel%CircuitMatrix=>CM
+    CurrentModel % CircuitMatrix=>CM
     
     CM % Format = MATRIX_CRS
     Asolver % Matrix % AddMatrix => CM
@@ -1841,8 +1976,12 @@ CONTAINS
     ALLOCATE(Done(nm), CM % RowOwner(n)); Cm % RowOwner=-1
 
     Parallel = (ParEnv % PEs > 1)
-    IF( CurrentModel % Mesh % SingleMesh ) Parallel = .FALSE.
-
+    IF( Parallel ) THEN
+      IF( ASolver % Mesh % SingleMesh ) THEN
+        Parallel = ListGetLogical( CurrentModel % Simulation,'Enforce Parallel',Found )
+      END IF
+    END IF
+      
     IF( Parallel ) CALL SetCircuitsParallelInfo()
 
     ! COUNT SIZES:
@@ -1861,7 +2000,7 @@ CONTAINS
       CM % NUmberOfRows = 0
       DEALLOCATE(Rows,Cnts,Done,CM); CM=>Null()
       Asolver %  Matrix % AddMatrix => CM
-      CurrentModel%CircuitMatrix=>CM
+      CurrentModel % CircuitMatrix=>CM
       RETURN 
     END IF
 
@@ -1902,6 +2041,8 @@ CONTAINS
 !------------------------------------------------------------------------------
   END SUBROUTINE Circuits_MatrixInit
 !------------------------------------------------------------------------------
+
+      
 END MODULE CircMatInitMod
 
 
