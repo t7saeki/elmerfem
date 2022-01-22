@@ -78,7 +78,7 @@
      REAL(KIND=dp), POINTER, SAVE :: sTime(:), sStep(:), sInterval(:), sSize(:), &
          steadyIt(:),nonlinIt(:),sPrevSizes(:,:),sPeriodicTime(:),sPeriodicCycle(:),&
          sScan(:),sSweep(:),sPar(:),sFinish(:),sProduce(:),sSlice(:),sSliceRatio(:),&
-         sSliceWeight(:), sAngle(:), sAngleVelo(:)
+         sSliceWeight(:), sAngle(:), sAngleVelo(:),sSector(:)
 
      LOGICAL :: GotIt,Transient,Scanning, LastSaved, MeshMode = .FALSE.
 
@@ -96,7 +96,7 @@
 
      TYPE(ParEnv_t), POINTER :: ParallelEnv
 
-     CHARACTER(LEN=MAX_NAME_LEN) :: ModelName, eq, ExecCommand, ExtrudedMeshName
+     CHARACTER(LEN=MAX_NAME_LEN) :: ModelName, eq, ExecCommand
      CHARACTER(LEN=MAX_STRING_LEN) :: OutputFile, PostFile, RestartFile, &
                 OutputName=' ',PostName=' ', When, OptionString
 
@@ -483,7 +483,7 @@ END INTERFACE
 !------------------------------------------------------------------------------
 !      Get Output File Options
 !------------------------------------------------------------------------------
-
+       
        ! Initial Conditions:
        ! -------------------
        IF ( FirstLoad ) THEN
@@ -519,15 +519,24 @@ END INTERFACE
          IF( DoControl ) THEN
            CALL ControlResetMesh(Control % Control, iSweep )            
            IF( iSweep > 1 ) THEN
-             CALL ControlParameters(Control % Control, &
-                 iSweep,GotParams,FinishEarly)           
+             CALL ControlParameters(Control % Control,iSweep,&
+                 GotParams,FinishEarly)           
              IF( FinishEarly ) EXIT
              Found = ReloadInputFile(CurrentModel,RewindFile=.TRUE.)
              CALL InitializeIntervals()
+           END IF
+
+           ! This is another calling slot as here we have formed the model structure and
+           ! may toggle with the keyword coefficients. 
+           CALL ControlParameters(Control % Control,iSweep,&
+               GotParams,FinishEarly,SetCoeffs=.TRUE.)
+
+           IF( iSweep > 1 ) THEN
              IF( ListGetLogical( Control % Control,'Reset Initial Conditions',Found ) ) THEN
                CALL SetInitialConditions()
              END IF
            END IF
+           
          END IF
            
          !------------------------------------------------------------------------------
@@ -624,24 +633,27 @@ END INTERFACE
      SUBROUTINE CreateExtrudedMesh()
 
        INTEGER :: ExtrudeLayers
+       LOGICAL :: SliceVersion
+
+       IF(.NOT. ListCheckPrefix(CurrentModel % Simulation,'Extruded Mesh') ) RETURN
        
-       ExtrudeLayers = GetInteger(CurrentModel % Simulation,'Extruded Mesh Levels',Found) - 1 
+       ExtrudeLayers = GetInteger(CurrentModel % Simulation,'Extruded Mesh Levels',Found)-1 
        IF( .NOT. Found ) THEN
          ExtrudeLayers = GetInteger(CurrentModel % Simulation,'Extruded Mesh Layers',Found)
        END IF
        IF(.NOT. Found ) RETURN
-
+       
        IF(ExtrudeLayers < 2) THEN
          CALL Fatal('ElmerSolver','There must be at least two "Extruded Mesh Layers"!')
        END IF
 
-       ExtrudedMeshName = GetString(CurrentModel % Simulation,'Extruded Mesh Name',Found)
-       IF (Found) THEN
-         ExtrudedMesh => MeshExtrude(CurrentModel % Meshes, ExtrudeLayers-1, ExtrudedMeshName)
+       SliceVersion = GetLogical(CurrentModel % Simulation,'Extruded Mesh Slices',Found )              
+       IF( SliceVersion ) THEN
+         ExtrudedMesh => MeshExtrudeSlices(CurrentModel % Meshes, ExtrudeLayers-1)
        ELSE
          ExtrudedMesh => MeshExtrude(CurrentModel % Meshes, ExtrudeLayers-1)
        END IF
-
+         
        ! Make the solvers point to the extruded mesh, not the original mesh
        !-------------------------------------------------------------------
        DO i=1,CurrentModel % NumberOfSolvers
@@ -785,7 +797,7 @@ END INTERFACE
            ALLOCATE( sTime(1), sStep(1), sInterval(1), sSize(1), &
            steadyIt(1), nonLinit(1), sPrevSizes(1,5), sPeriodicTime(1), &
            sPeriodicCycle(1), sPar(1), sScan(1), sSweep(1), sFinish(1), &
-           sProduce(1),sSlice(1), sSliceRatio(1), sSliceWeight(1), sAngle(1), &
+           sProduce(1),sSlice(1), sSector(1), sSliceRatio(1), sSliceWeight(1), sAngle(1), &
            sAngleVelo(1) )
        
        dt = 0._dp       
@@ -803,6 +815,7 @@ END INTERFACE
        sFinish = -1.0_dp
        sProduce = -1.0_dp
        sSlice = 0._dp
+       sSector = 0._dp
        sSliceRatio = 0._dp
        sSliceWeight = 1.0_dp
        sAngle = 0.0_dp
@@ -1379,7 +1392,10 @@ END INTERFACE
          CALL VariableAdd( Mesh % Variables, Mesh, Name='slice weight', DOFs=1, Values=sSliceWeight )
        END IF
        
-       
+       IF( ListCheckPresent( CurrentModel % Simulation,'Parallel Timestepping') ) THEN
+         CALL VariableAdd( Mesh % Variables, Mesh, Name='time sector', DOFs=1, Values=sSector )
+       END IF
+             
        ! Add partition as a elemental field in case we have just one partition
        ! and have asked still for partitioning into many.
        IF( ParEnv % PEs == 1 .AND. ASSOCIATED( Mesh % Repartition ) ) THEN
@@ -2323,12 +2339,14 @@ END INTERFACE
          .AND. ( ParEnv % PEs > 1 ) 
 
      ! For parallel slices we need to introduce the slices
-     ParallelSlices = ListGetLogical( CurrentModel % Simulation,'Parallel Slices',GotIt ) &
-         .AND. ( ParEnv % PEs > 1 )
+     ParallelSlices = ListGetLogical( CurrentModel % Simulation,'Parallel Slices',GotIt ) 
+         !.AND. ( ParEnv % PEs > 1 )
 
      IF( ParallelTime .OR. ParallelSlices ) THEN
-       IF(.NOT. ListGetLogical( CurrentModel % Simulation,'Single Mesh',GotIt ) ) THEN
-         CALL Fatal('ExecSimulation','Parallel time and slices only available with "Single Mesh"')
+       IF( ParEnv % PEs > 1 ) THEN
+         IF(.NOT. ListGetLogical( CurrentModel % Simulation,'Single Mesh',GotIt ) ) THEN
+           CALL Fatal('ExecSimulation','Parallel time and slices only available with "Single Mesh"')
+         END IF
        END IF
      END IF
 
@@ -2336,7 +2354,7 @@ END INTERFACE
      nSlices = 1
      nTimes = 1
      iTime = 0
-     iSlice = 0 
+     iSlice = 0
      
      IF( ParallelTime .AND. ParallelSlices ) THEN
        nSlices = ListGetInteger( CurrentModel % Simulation,'Number Of Slices',GotIt)
@@ -2407,6 +2425,14 @@ END INTERFACE
          sSliceWeight = 1.0_dp / nSlices 
        END IF
      END IF
+
+     IF( ListGetLogical( CurrentModel % Simulation,'Parallel Timestepping',GotIt ) ) THEN
+       IF( nTimes <= 1 ) THEN
+         sSector = 0.0_dp
+       ELSE         
+         sSector = 1.0_dp * iTime 
+       END IF
+     END IF       
      
      DO interval = 1,TimeIntervals
        

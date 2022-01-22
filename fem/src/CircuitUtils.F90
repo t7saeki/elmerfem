@@ -54,21 +54,25 @@ CONTAINS
     
     TYPE(Valuelist_t), POINTER :: simulation
     REAL(KIND=dp) :: depth
-    LOGICAL :: Found, CSymmetry
-
+    LOGICAL :: Found, CSymmetry, Parallel
+    INTEGER :: NoSlices
+    
     CSymmetry = ( CurrentCoordinateSystem() == AxisSymmetric .OR. &
       CurrentCoordinateSystem() == CylindricSymmetric )
 
     simulation => GetSimulation()
-    IF (.NOT. ASSOCIATED(simulation)) CALL Fatal ('GetCircuitModelDepth', 'Simulation not found!')
-   
     depth = GetConstReal(simulation, 'Circuit Model Depth', Found)
-    
-    IF (.NOT. Found) THEN
+
+    IF( Found ) THEN
+      NoSlices = ListGetInteger(simulation,'Number of Slices',Found)
+      IF(NoSlices > 1) THEN
+        IF( CurrentModel % Solver % Parallel ) depth = depth / NoSlices
+      END IF
+    ELSE
       depth = 1._dp
       IF (CSymmetry) depth = 2._dp * pi
     END IF
-       
+        
 !------------------------------------------------------------------------------
   END FUNCTION GetCircuitModelDepth
 !------------------------------------------------------------------------------
@@ -538,8 +542,7 @@ END FUNCTION isComponentName
     BoundaryAreas = 0._dp
     Mesh => CurrentModel % Mesh
 
-    Parallel = ( ParEnv % PEs > 1 )
-    IF( Mesh % SingleMesh ) Parallel = .FALSE.
+    Parallel = CurrentModel % Solver % Parallel
     
     DO i=1, CurrentModel % NumberOfBcs
        BC => CurrentModel % BCs(i) % Values
@@ -605,7 +608,14 @@ END FUNCTION isComponentName
       IF (.NOT. ASSOCIATED(CompParams)) CALL Fatal ('Circuits_Init', 'Component parameters not found!')
       
       Comp % CoilType = GetString(CompParams, 'Coil Type', Found)
-      IF (.NOT. Found) CALL Fatal ('Circuits_Init', 'Coil Type not found!')
+      IF (.NOT. Found) THEN
+        CALL Info('Circuits_Init', 'Component '//TRIM(i2s(Comp % ComponentId))//' is not a coil. &
+          Checking if it has a component type.', Level=7)
+        Comp % ComponentType = GetString(CompParams, 'Component Type', Found)
+        IF (.NOT. Found) CALL Fatal ('Circuits_Init', 'Component Type not found!')
+      ELSE
+        Comp % ComponentType = 'coil'
+      END IF
       
       Comp % i_multiplier_re = GetConstReal(CompParams, 'Current Multiplier re', Found)
       IF (.NOT. Found) Comp % i_multiplier_re = 0._dp
@@ -617,72 +627,77 @@ END FUNCTION isComponentName
 
       Comp % ElBoundaries => ListGetIntegerArray(CompParams, 'Electrode Boundaries', Found)
       
-      SELECT CASE (Comp % CoilType) 
-      CASE ('stranded')
-        Comp % nofturns = GetConstReal(CompParams, 'Number of Turns', Found)
-        IF (.NOT. Found) CALL Fatal('Circuits_Init','Number of Turns not found!')
-
-        Comp % ElArea = GetConstReal(CompParams, 'Electrode Area', Found)
-        IF (.NOT. Found) CALL ComputeElectrodeArea(Comp, CompParams)
-
-        Comp % CoilThickness = GetConstReal(CompParams, 'Coil Thickness', Found)
-        IF (.NOT. Found) Comp % CoilThickness = 1._dp
-
-        Comp % SymmetryCoeff = GetConstReal(CompParams, 'Symmetry Coefficient', Found)
-        IF (.NOT. Found) Comp % SymmetryCoeff = 1.0_dp
-
-        Comp % N_j = Comp % CoilThickness * Comp % nofturns / Comp % ElArea
-
-        ! Stranded coil has current and voltage 
-        ! variables (which both have a dof):
-        ! ------------------------------------
+      IF (Comp % ComponentType == 'resistor') THEN
         Comp % ivar % dofs = 1
         Comp % vvar % dofs = 1
         Comp % ivar % pdofs = 0
         Comp % vvar % pdofs = 0
+      ELSE
+        SELECT CASE (Comp % CoilType) 
+        CASE ('stranded')
+          Comp % nofturns = GetConstReal(CompParams, 'Number of Turns', Found)
+          IF (.NOT. Found) CALL Fatal('Circuits_Init','Number of Turns not found!')
 
-      CASE ('massive')
-        ! Massive coil has current and voltage 
-        ! variables (which both have a dof):
-        ! ------------------------------------
-        Comp % ivar % dofs = 1
-        Comp % vvar % dofs = 1
-        Comp % ivar % pdofs = 0
-        Comp % vvar % pdofs = 0
+          Comp % ElArea = GetConstReal(CompParams, 'Electrode Area', Found)
+          IF (.NOT. Found) CALL ComputeElectrodeArea(Comp, CompParams)
 
-      CASE ('foil winding')
-        Comp % polord = GetInteger(CompParams, 'Foil Winding Voltage Polynomial Order', Found)
-        IF (.NOT. Found) Comp % polord = 2
+          Comp % CoilThickness = GetConstReal(CompParams, 'Coil Thickness', Found)
+          IF (.NOT. Found) Comp % CoilThickness = 1._dp
 
-        ! Foil winding has current and voltage 
-        ! variables. Current has one dof and 
-        ! voltage has a polynom for describing the 
-        ! global voltage. The polynom has 1+"polynom order"
-        ! dofs. Thus voltage variable has 1+1+"polynom order"
-        ! dofs (V=V0+V1*alpha+V2*alpha^2+..):
-        ! dofs:
-        ! V, V0, V1, V2, ...
-        ! ------------------------------------
-        Comp % ivar % dofs = 1
-        Comp % ivar % pdofs = 0
-        Comp % vvar % dofs = Comp % polord + 2
-        ! polynom dofs:
-        ! -------------
-        Comp % vvar % pdofs = Comp % polord + 1
+          Comp % SymmetryCoeff = GetConstReal(CompParams, 'Symmetry Coefficient', Found)
+          IF (.NOT. Found) Comp % SymmetryCoeff = 1.0_dp
 
-        Comp % coilthickness = GetConstReal(CompParams, 'Coil Thickness', Found)
-        IF (.NOT. Found) CALL Fatal('Circuits_Init','Coil Thickness not found!')
+          Comp % N_j = Comp % CoilThickness * Comp % nofturns / Comp % ElArea
 
-        Comp % nofturns = GetConstReal(CompParams, 'Number of Turns', Found)
-        IF (.NOT. Found) CALL Fatal('Circuits_Init','Number of Turns not found!')
+          ! Stranded coil has current and voltage 
+          ! variables (which both have a dof):
+          ! ------------------------------------
+          Comp % ivar % dofs = 1
+          Comp % vvar % dofs = 1
+          Comp % ivar % pdofs = 0
+          Comp % vvar % pdofs = 0
 
-        Comp % ElArea = GetConstReal(CompParams, 'Electrode Area', Found)
-        IF (.NOT. Found) CALL ComputeElectrodeArea(Comp, CompParams)
+        CASE ('massive')
+          ! Massive coil has current and voltage 
+          ! variables (which both have a dof):
+          ! ------------------------------------
+          Comp % ivar % dofs = 1
+          Comp % vvar % dofs = 1
+          Comp % ivar % pdofs = 0
+          Comp % vvar % pdofs = 0
 
+        CASE ('foil winding')
+          Comp % polord = GetInteger(CompParams, 'Foil Winding Voltage Polynomial Order', Found)
+          IF (.NOT. Found) Comp % polord = 2
 
-        Comp % N_j = Comp % nofturns / Comp % ElArea
+          ! Foil winding has current and voltage 
+          ! variables. Current has one dof and 
+          ! voltage has a polynom for describing the 
+          ! global voltage. The polynom has 1+"polynom order"
+          ! dofs. Thus voltage variable has 1+1+"polynom order"
+          ! dofs (V=V0+V1*alpha+V2*alpha^2+..):
+          ! dofs:
+          ! V, V0, V1, V2, ...
+          ! ------------------------------------
+          Comp % ivar % dofs = 1
+          Comp % ivar % pdofs = 0
+          Comp % vvar % dofs = Comp % polord + 2
+          ! polynom dofs:
+          ! -------------
+          Comp % vvar % pdofs = Comp % polord + 1
 
-      END SELECT
+          Comp % coilthickness = GetConstReal(CompParams, 'Coil Thickness', Found)
+          IF (.NOT. Found) CALL Fatal('Circuits_Init','Coil Thickness not found!')
+
+          Comp % nofturns = GetConstReal(CompParams, 'Number of Turns', Found)
+          IF (.NOT. Found) CALL Fatal('Circuits_Init','Number of Turns not found!')
+
+          Comp % ElArea = GetConstReal(CompParams, 'Electrode Area', Found)
+          IF (.NOT. Found) CALL ComputeElectrodeArea(Comp, CompParams)
+
+          Comp % N_j = Comp % nofturns / Comp % ElArea
+        END SELECT
+      END IF
       CALL AddVariableToCircuit(Circuit, Comp % ivar, CId)
       CALL AddVariableToCircuit(Circuit, Comp % vvar, CId)
     END DO
@@ -699,7 +714,7 @@ END FUNCTION isComponentName
   TYPE(ValueList_t), POINTER :: CompParams, BC
   TYPE(Element_t), POINTER :: Element
   TYPE(Mesh_t), POINTER :: Mesh
-  INTEGER :: t, n, BCid
+  INTEGER :: t, n, BCid, NoSlices
   LOGICAL :: Found
   LOGICAL :: Parallel 
   
@@ -707,8 +722,12 @@ END FUNCTION isComponentName
   Comp % ElArea = 0._dp
 
   Parallel = ( ParEnv % PEs > 1 )
-  IF( Mesh % SingleMesh ) Parallel = .FALSE.
-  
+  IF( Parallel ) THEN
+    ! If we have single mesh then we have either parallel times or parallel slices.
+    ! In both cases let us not do a parallel sum. 
+    IF( Mesh % SingleMesh ) Parallel = .FALSE.
+  END IF
+    
   IF (CoordinateSystemDimension() == 2) THEN
     DO t=1,GetNOFActive()
       Element => GetActiveElement(t)
@@ -717,9 +736,13 @@ END FUNCTION isComponentName
         Comp % ElArea = Comp % ElArea + ElementAreaNoAxisTreatment(Mesh, Element, n) 
       END IF
     END DO
+    
     IF( Parallel ) THEN
       Comp % ElArea = ParallelReduction(Comp % ElArea)
     END IF
+
+    ! Add this to list since no need to compute this twice
+    CALL ListAddConstReal(CompParams,'Electrode Area',Comp % ElArea )        
   ELSE
     IF (.NOT. ASSOCIATED(Comp % ElBoundaries)) &
         CALL Fatal('ComputeElectrodeArea','Electrode Boundaries not found')
@@ -730,8 +753,10 @@ END FUNCTION isComponentName
 
     Comp % ElArea = GetConstReal(BC, 'Area', Found)
     IF (.NOT. Found) CALL Fatal('ComputeElectrodeArea', 'Area not found!')
-    
   END IF
+
+
+  
 !-------------------------------------------------------------------
  END SUBROUTINE ComputeElectrodeArea
 !-------------------------------------------------------------------
@@ -1598,24 +1623,30 @@ CONTAINS
         Cvar => Comp % vvar
         RowId = Cvar % ValueId + nm
         ColId = Cvar % ValueId + nm
-        SELECT CASE (Comp % CoilType)
-        CASE('stranded')
-           CALL CountMatElement(Rows, Cnts, RowId, 1)
-           CALL CountMatElement(Rows, Cnts, RowId, 1)
-        CASE('massive')
-           CALL CountMatElement(Rows, Cnts, RowId, 1)
-           CALL CountMatElement(Rows, Cnts, RowId, 1)
-        CASE('foil winding')
-          ! V = V0 + V1*alpha + V2*alpha^2 + ...
-          CALL CountMatElement(Rows, Cnts, RowId, Cvar % dofs)
+        IF (Comp % ComponentType == 'resistor') THEN
+            CALL CountMatElement(Rows, Cnts, RowId, 1)
+            CALL CountMatElement(Rows, Cnts, RowId, 1)
+            CYCLE
+        ELSE
+          SELECT CASE (Comp % CoilType)
+          CASE('stranded')
+             CALL CountMatElement(Rows, Cnts, RowId, 1)
+             CALL CountMatElement(Rows, Cnts, RowId, 1)
+          CASE('massive')
+             CALL CountMatElement(Rows, Cnts, RowId, 1)
+             CALL CountMatElement(Rows, Cnts, RowId, 1)
+          CASE('foil winding')
+            ! V = V0 + V1*alpha + V2*alpha^2 + ...
+            CALL CountMatElement(Rows, Cnts, RowId, Cvar % dofs)
 
-          ! Circuit eqns for the pdofs:
-          ! I(Vj) - I = 0
-          ! ------------------------------------
-          DO j=1, Cvar % pdofs
-            CALL CountMatElement(Rows, Cnts, RowId + AddIndex(j), Cvar % dofs)
-          END DO
-        END SELECT
+            ! Circuit eqns for the pdofs:
+            ! I(Vj) - I = 0
+            ! ------------------------------------
+            DO j=1, Cvar % pdofs
+              CALL CountMatElement(Rows, Cnts, RowId + AddIndex(j), Cvar % dofs)
+            END DO
+          END SELECT
+        END IF
 
 !        temp = SUM(Cnts)
 !print *, "Active elements", ParEnv % Mype, ":", GetNOFActive()
@@ -1673,28 +1704,34 @@ CONTAINS
         VvarId = Comp % vvar % ValueId + nm
         IvarId = Comp % ivar % ValueId + nm
 
-        SELECT CASE (Comp % CoilType)
-        CASE('stranded')
-          CALL CreateMatElement(Rows, Cols, Cnts, VvarId, IvarId)
-          CALL CreateMatElement(Rows, Cols, Cnts, VvarId, VvarId)
-        CASE('massive')
-          CALL CreateMatElement(Rows, Cols, Cnts, VvarId, IvarId)
-          CALL CreateMatElement(Rows, Cols, Cnts, VvarId, VvarId)
-        CASE('foil winding')
-          DO j=0, Cvar % pdofs
-            ! V = V0 + V1*alpha + V2*alpha^2 + ...
-            CALL CreateMatElement(Rows, Cols, Cnts, VvarId, VvarId + AddIndex(j))
-            IF (j/=0) THEN
-              ! Circuit eqns for the pdofs:
-              ! I(Vi) - I = 0
-              ! ------------------------------------
-              CALL CreateMatElement(Rows, Cols, Cnts, VvarId + AddIndex(j), IvarId)
-              DO jj = 1, Cvar % pdofs
-                  CALL CreateMatElement(Rows, Cols, Cnts, VvarId + AddIndex(j), VvarId + AddIndex(j))
-              END DO
-            END IF
-          END DO
-        END SELECT
+        IF (Comp % ComponentType == 'resistor') THEN
+            CALL CreateMatElement(Rows, Cols, Cnts, VvarId, IvarId)
+            CALL CreateMatElement(Rows, Cols, Cnts, VvarId, VvarId)
+            CYCLE
+        ELSE
+          SELECT CASE (Comp % CoilType)
+          CASE('stranded')
+            CALL CreateMatElement(Rows, Cols, Cnts, VvarId, IvarId)
+            CALL CreateMatElement(Rows, Cols, Cnts, VvarId, VvarId)
+          CASE('massive')
+            CALL CreateMatElement(Rows, Cols, Cnts, VvarId, IvarId)
+            CALL CreateMatElement(Rows, Cols, Cnts, VvarId, VvarId)
+          CASE('foil winding')
+            DO j=0, Cvar % pdofs
+              ! V = V0 + V1*alpha + V2*alpha^2 + ...
+              CALL CreateMatElement(Rows, Cols, Cnts, VvarId, VvarId + AddIndex(j))
+              IF (j/=0) THEN
+                ! Circuit eqns for the pdofs:
+                ! I(Vi) - I = 0
+                ! ------------------------------------
+                CALL CreateMatElement(Rows, Cols, Cnts, VvarId + AddIndex(j), IvarId)
+                DO jj = 1, Cvar % pdofs
+                    CALL CreateMatElement(Rows, Cols, Cnts, VvarId + AddIndex(j), VvarId + AddIndex(j))
+                END DO
+              END IF
+            END DO
+          END SELECT
+        END IF
 
 !        temp = SUM(Cnts)
 !print *, "Active elements ", ParEnv % Mype, ":", GetNOFActive()
@@ -1757,15 +1794,16 @@ CONTAINS
     
     IF (.NOT. ASSOCIATED(CurrentModel % ASolver) ) CALL Fatal ('CountAndCreateStranded','ASolver not found!')
     PS => CurrentModel % Asolver % Variable % Perm
+
     nd = GetElementDOFs(Indexes,Element,CurrentModel % ASolver)
     IF(dim==2) THEN
       ncdofs1=1
       ncdofs2=nd
     ELSE IF(dim==3) THEN
-      ncdofs1=nn
+      ncdofs1=nn+1
       ncdofs2=nd
     END IF
-    
+
     DO p=ncdofs1,ncdofs2
       j = Indexes(p)
 
@@ -1782,11 +1820,11 @@ CONTAINS
         IF(PRESENT(Cols)) THEN
           CALL CreateMatElement(Rows, Cols, Cnts, i, j, harm) 
           CALL CreateMatElement(Rows, Cols, Cnts, j, Jsind, harm)
-!          CALL CreateMatElement(Rows, Cols, Cnts, j, Jsind)
+!         CALL CreateMatElement(Rows, Cols, Cnts, j, Jsind)
         ELSE
           CALL CountMatElement(Rows, Cnts, i, 1, harm)
           CALL CountMatElement(Rows, Cnts, j, 1, harm)
-!          CALL CountMatElement(Rows, Cnts, j, 1)
+!         CALL CountMatElement(Rows, Cnts, j, 1)
         END IF
       END IF
     END DO
@@ -1828,7 +1866,7 @@ CONTAINS
       ncdofs1=1
       ncdofs2=nd
     ELSE IF(dim==3) THEN
-      ncdofs1=nn
+      ncdofs1=nn+1
       ncdofs2=nd
     END IF
     DO p=ncdofs1,ncdofs2
@@ -1971,17 +2009,14 @@ CONTAINS
     ALLOCATE(CM % RHS(nm + Circuit_tot_n)); CM % RHS=0._dp
 
     CM % NumberOfRows = nm + Circuit_tot_n
-    n = CM % NumberOfRows
-    ALLOCATE(Rows(n+1), Cnts(n)); Rows=0; Cnts=0
-    ALLOCATE(Done(nm), CM % RowOwner(n)); Cm % RowOwner=-1
 
-    Parallel = (ParEnv % PEs > 1)
-    IF( Parallel ) THEN
-      IF( ASolver % Mesh % SingleMesh ) THEN
-        Parallel = ListGetLogical( CurrentModel % Simulation,'Enforce Parallel',Found )
-      END IF
-    END IF
-      
+    n = CM % NumberOfRows
+
+    ALLOCATE(Rows(n+1), Cnts(n)); Rows=0; Cnts=0
+    ALLOCATE(Done(SIZE(PS)), CM % RowOwner(n)); Cm % RowOwner=-1
+
+
+    Parallel = CurrentModel % Solver % Parallel      
     IF( Parallel ) CALL SetCircuitsParallelInfo()
 
     ! COUNT SIZES:

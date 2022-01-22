@@ -97,11 +97,7 @@ MODULE ComponentUtils
      IF( PRESENT(Moment)) Moment = 0.0_dp
      IF( PRESENT(Force)) Force = 0.0_dp
 
-     IsParallel = ( ParEnv % PEs > 1 )
-     IF( IsParallel ) THEN
-       IF( Mesh % SingleMesh ) isParallel = .FALSE.
-     END IF
-
+     IsParallel = CurrentModel % Solver % Parallel
      
      BcMode = .FALSE.
      MasterEntities => ListGetIntegerArray( CompParams,'Master Bodies',Found )     
@@ -204,9 +200,12 @@ MODULE ComponentUtils
 
          ! Only compute the parallel reduction once
          IF( isParallel ) THEN
-           IF( Mesh % ParallelInfo % NeighbourList(globalnode) % Neighbours(1) /= ParEnv % MyPE ) CYCLE
+           IF( Element % PartIndex /= ParEnv % MyPe ) CYCLE
+           IF( VisitNodeOnlyOnce ) THEN           
+             IF( Mesh % ParallelInfo % NeighbourList(globalnode) % Neighbours(1) /= ParEnv % MyPE ) CYCLE
+           END IF
          END IF
-
+           
          F(1) = NF % Values( dofs*(k-1) + 1)
          F(2) = NF % Values( dofs*(k-1) + 2)
          IF( dofs == 3 ) THEN 
@@ -408,7 +407,7 @@ MODULE ComponentUtils
     END DO
     
     
-    sumi = NINT( ParallelReduction(1.0_dp * sumi) )
+    sumi = ParallelReduction(sumi) 
     IF( sumi == 0 ) THEN
       CALL Warn('ComponentNodalReduction','No active nodes to reduced!')
       RETURN
