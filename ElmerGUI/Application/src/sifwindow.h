@@ -157,6 +157,7 @@ private:
   QMenu *highlightingMenu;
 
   QToolBar *fileToolBar;
+  QToolBar *historyToolBar;  
   QToolBar *editToolBar;
 
   void createActions();

@@ -193,7 +193,7 @@ SifWindow::SifWindow(QWidget *parent) : QMainWindow(parent) {
   
   // for sif history //////////////////////////////
   dock = new QDockWidget(this);
-  dock->setWindowTitle("Run history");
+  dock->setWindowTitle("Sif history");
   dock->setFeatures(QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetMovable);
   historyWidget = new QWidget(this);
   QVBoxLayout* layout = new QVBoxLayout();
@@ -300,13 +300,13 @@ void SifWindow::createActions() {
   printAct->setStatusTip(tr("Print document"));
   connect(printAct, SIGNAL(triggered()), this, SLOT(printSlot()));
   
-  showHistoryAct = new QAction(QIcon(":/icons/player-time.png"), tr("&Show run history"), this);
-  showHistoryAct->setStatusTip(tr("Show/Hide run history"));
+  showHistoryAct = new QAction(QIcon(":/icons/player-time.png"), tr("&Show sif history"), this);
+  showHistoryAct->setStatusTip(tr("Show/Hide sif history"));
   connect(showHistoryAct, SIGNAL(triggered()), this, SLOT(showHistorySlot()));
   showHistoryAct->setCheckable(true);  
   
-  archiveAct = new QAction(QIcon(":/icons/archive-insert.png"), tr("&Archive sif"), this);
-  archiveAct->setStatusTip(tr("Archive current sif content without running solver"));
+  archiveAct = new QAction(QIcon(":/icons/archive-insert.png"), tr("&Add current sif to history"), this);
+  archiveAct->setStatusTip(tr("Add current sif content to history without running solver"));
   connect( archiveAct, SIGNAL(triggered()), this, SLOT(archiveSlot()));
 
   exitAct =
@@ -608,8 +608,8 @@ void SifWindow::archive(int triggerMenu){
   if(sifText.isEmpty()) return;
   
   QDir projectDir(((MainWindow *)parent())->projectDirPath());
-  projectDir.mkdir("sif_history"); 
-  QDir archiveDir(((MainWindow *)parent())->projectDirPath() + "/sif_history");
+  projectDir.mkdir("Sif_history"); 
+  QDir archiveDir(((MainWindow *)parent())->projectDirPath() + "/Sif_history");
  
   QDateTime dt = QDateTime::currentDateTime();
   
@@ -656,7 +656,7 @@ void SifWindow::loadHistory(){
 	
   QString name;
   QDir projectDir(((MainWindow *)parent())->projectDirPath());
-  QDir archiveDir(((MainWindow *)parent())->projectDirPath() + "/sif_history");
+  QDir archiveDir(((MainWindow *)parent())->projectDirPath() + "/Sif_history");
   
   QStringList nameFilters;
   nameFilters << "*.sif";
@@ -677,6 +677,8 @@ void SifWindow::loadHistory(){
 		historyList->addItem(QIcon(":/icons/arrow-right-double.png"), name.left(19), fileNameList.at(i));
 	  }else if(triggerMenu == SIF_ARCHIVE_BY_START_SOLVER_MENU){
 		historyList->addItem(QIcon(":/icons/Solver.png"), name.left(19), fileNameList.at(i));
+	  }else if(triggerMenu == SIF_ARCHIVE_BY_ARCHIVE_MENU){
+		historyList->addItem(QIcon(":/icons/archive-insert.png"), name.left(19), fileNameList.at(i));
 	  }else{
 		historyList->addItem(QIcon(":/icons/none.png"),name.left(19), fileNameList.at(i));
 	  }
@@ -696,7 +698,7 @@ void SifWindow::historySelectionChangeSlot(){
 
   QString name;
   QDir projectDir(((MainWindow *)parent())->projectDirPath());
-  QDir archiveDir(((MainWindow *)parent())->projectDirPath() + "/sif_history");
+  QDir archiveDir(((MainWindow *)parent())->projectDirPath() + "/Sif_history");
     
   QString fileName = archiveDir.absolutePath() + "/" + historyList->currentData().toString();//currentItem()->text();
   
