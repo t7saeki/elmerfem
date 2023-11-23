@@ -175,17 +175,44 @@ MainWindow::MainWindow() {
 
 #ifdef EG_QWT
   convergenceView = new ConvergenceView(limit, this);
+  convergenceDock = new QDockWidget("Convergence View", this);
+  convergenceDock->setWidget(convergenceView);
+  convergenceDock->setFeatures(QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
+  addDockWidget(Qt::RightDockWidgetArea, convergenceDock);
+  convergenceDock->show();
 #endif
+
+  solverLogDock = new QDockWidget("Solver Log", this);
+  solverLogDock->setWidget(solverLogWindow);
+  solverLogDock->setFeatures(QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
+  addDockWidget(Qt::RightDockWidgetArea, solverLogDock);
+  solverLogDock->show();
+
+  sifDock = new QDockWidget("SIF Editor", this);
+  sifDock->setWidget(sifWindow);
+  sifDock->setFeatures(QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
+  addDockWidget(Qt::RightDockWidgetArea, sifDock);
+  sifDock->show();
 
 #ifdef EG_VTK
   vtkp = vtkPost = new VtkPost(this);
   vtkPostMeshUnifierRunning = false;
+  vtkDock = new QDockWidget("VTK Postprocessor", this);
+  vtkDock->setWidget(vtkPost);
+  vtkDock->setFeatures(QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
+  addDockWidget(Qt::LeftDockWidgetArea, vtkDock);
+  vtkDock->show();
 #endif
 
 #ifdef EG_OCC
   cadView = new CadView();
   if (egIni->isPresent("deflection"))
     cadView->setDeflection(egIni->value("deflection").toDouble());
+  cadDock = new QDockWidget("CAD View", this);
+  cadDock->setWidget(cadView);
+  cadDock->setFeatures(QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
+  addDockWidget(Qt::LeftDockWidgetArea, cadDock);
+  cadDock->show();
 #endif
 
   createActions();

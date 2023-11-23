@@ -44,6 +44,7 @@
 #include <QDomDocument>
 #include <QMainWindow>
 #include <QProcess>
+#include <QDockWidget>
 
 #include "bodypropertyeditor.h"
 #include "boundarydivision.h"
@@ -291,7 +292,10 @@ private:
   EdfEditor *edfEditor;             // Edf editor
 #ifdef EG_QWT
   ConvergenceView *convergenceView; // Convergence plotter
+  QDockWidget* convergenceDock;
 #endif
+  QDockWidget* solverLogDock;
+  QDockWidget* sifDock;
 
   void createActions();
   void createMenus();
@@ -448,12 +452,14 @@ private:
 
 #ifdef EG_OCC
   CadView *cadView;
+  QDockWidget* cadDock;
 #endif
 
   TwodView *twodView;
 
 #ifdef EG_VTK
   VtkPost *vtkPost;
+  QDockWidget* vtkDock;
 #endif
 
   // elmer definitions:
