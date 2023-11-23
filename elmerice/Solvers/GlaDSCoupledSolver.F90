@@ -102,7 +102,7 @@
      LOGICAL :: Found, FluxBC, Channels, Storage, FirstTime = .TRUE., &
           AllocationsDone = .FALSE.,  SubroutineVisited = .FALSE., &
           meltChannels = .TRUE., NeglectH = .TRUE., Calving = .FALSE., &
-          CycleElement=.FALSE., MABool = .FALSE., MHBool = .FALSE. 
+          CycleElement=.FALSE., MABool = .FALSE., MHBool = .FALSE., LimitEffPres=.FALSE.
      LOGICAL, ALLOCATABLE ::  IsGhostNode(:), NoChannel(:), NodalNoChannel(:)
 
      REAL(KIND=dp) :: NonlinearTol, dt, CumulativeTime, RelativeChange, &
@@ -129,7 +129,8 @@
      
      REAL(KIND=dp) :: at, at0
 
-
+     TYPE(ValueHandle_t) :: Load_h
+     
      SAVE &
           ElementNodes, EdgeNodes,      &
           C1,                    &
@@ -150,7 +151,7 @@
           CCw, lc, Lw, NoChannel, NodalNoChannel, &
           Channels, meltChannels, NeglectH, BDForder, &
           Vvar, ublr, hr2, Refq, Nel,&
-          Calving
+          Calving, Load_h, LimitEffPres
 
       
      totst = 0.0_dp
@@ -162,6 +163,9 @@
      VariableName = TRIM(Solver % Variable % Name)
      SolverName = 'GlaDSCoupledsolver ('// VariableName // ')'
 
+     CALL ListInitElementKeyword( Load_h, 'Body Force', TRIM(Solver % Variable % Name) // ' Volume Source')
+
+     
      IF ( .NOT. ASSOCIATED( Solver % Matrix ) ) RETURN
      SystemMatrix => Solver % Matrix
      ForceVector => Solver % Matrix % RHS
@@ -421,6 +425,10 @@
      IF ((.NOT. MABool)) CALL WARN(SolverName,'No max channel area specified. &
           Channels may grow very large')
 
+     LimitEffPres = GetLogical( SolverParams, &
+          'Limit Negative Effective Pressure', Found)
+     IF (.NOT.Found) LimitEffPres= .FALSE.
+     
      MaxH  = GetConstReal( SolverParams, &
           'Max Sheet Thickness',    MHBool )
      IF ((.NOT. MHBool)) CALL WARN(SolverName,'No max sheet thickness specified.&
@@ -675,13 +683,14 @@
               !------------------------------------------------------------------------------
               ! Add body forces
               !------------------------------------------------------------------------------
-              LOAD = 0.0_dp
+              LOAD = 0.0_dp              
+              
               BodyForce => GetBodyForce()
-              IF ( ASSOCIATED( BodyForce ) ) THEN
-                 bf_id = GetBodyForceId()
-                 LOAD(1:N) = LOAD(1:N) + &
-                   GetReal( BodyForce, TRIM(Solver % Variable % Name) // ' Volume Source', Found )
-              END IF
+              !IF ( ASSOCIATED( BodyForce ) ) THEN
+              !   bf_id = GetBodyForceId()
+              !   LOAD(1:N) = LOAD(1:N) + &
+              !     GetReal( BodyForce, TRIM(Solver % Variable % Name) // ' Volume Source', Found )
+              !END IF
               ! f = m - w + v
               ! v is not added here as it will be linearized for the assembly
               LOAD(1:N) = LOAD(1:N) - Wopen(1:N)
@@ -902,10 +911,8 @@
                   FORCE=0.0_dp
                   MASS=0.0_dp
 
-                  Storage = .False.
                   Storage =  GetLogical(BC,'Moulin Storage', Found)
                   IF (Storage) THEN
-                    MoulinArea = 0.0_dp
                     MoulinArea(1:N) = ListGetReal( BC, 'Moulin Area',  N, Element % NodeIndexes, Found, &
                          UnfoundFatal = .TRUE. )
                     ! MASS is a scalar here
@@ -913,7 +920,6 @@
                   END IF
 
                   ! Is there surface input
-                  MoulinFlux = 0.0_dp
                   MoulinFlux(1:N) = ListGetReal( BC, 'Moulin Flux',  N, Element % NodeIndexes, Found, &
                          UnfoundFatal = .TRUE. )
                   FORCE(1) = MoulinFlux(1)
@@ -948,7 +954,6 @@
                   MASS=0.0_dp
 
                   LOAD=0.0_dp
-                  FluxBC = .FALSE.
                   FluxBC =  GetLogical(BC,TRIM(Solver % Variable % Name) // ' Flux BC', Found)
 
                   IF (FluxBC) THEN
@@ -1340,7 +1345,7 @@
                          ThickSolution(ThickPerm(Edge % NodeIndexes(1:n))), &
                          alphac, betac, ChannelConductivity, Phi0, Phim, Ac, lc, ng, &
                          SheetConductivity, alphas, betas, Afactor, Bfactor, &
-                         EdgeTangent, Edge, n, EdgeNodes )
+                         EdgeTangent, Edge, n, EdgeNodes, LimitEffPres)
                  ELSE
                     WRITE(Message,'(A)')' Work only for cartesian coordinate'
                     CALL FATAL( SolverName, Message)
@@ -1646,7 +1651,7 @@ CONTAINS
     TYPE(GaussIntegrationPoints_t), TARGET :: IntegStuff
     REAL(KIND=dp) :: s, u, v, w
 
-    REAL(KIND=dp) :: CT, C2, Vfactor, Phi0, PhiG
+    REAL(KIND=dp) :: CT, C2, Vfactor, Phi0, PhiG, LoadAtIP
 
     REAL(KIND=dp) :: gradPhi(3), Ngrad, na, nb, ng, hsheet 
 
@@ -1723,7 +1728,12 @@ CONTAINS
        ng = SUM(NodalNg(1:n)*Basis(1:n)) 
        Vfactor = Vfactor * ABS(Phi0-PhiG)**(ng-1.0_dp)
 
-       Force = SUM( LoadVector(1:n)*Basis(1:n) ) 
+       Force = SUM( LoadVector(1:n)*Basis(1:n) )
+       ! contribution from volume source (using handle)
+       LoadAtIP = ListGetElementReal( Load_h, Basis, Element, Found, GaussPoint=t)
+       IF (Found) THEN
+         Force = Force + LoadAtIP
+       END IF
        Force = Force + Vfactor * (Phi0 + (ng - 1.0_dp) * PhiG)
 
        !------------------------------------------------------------------------------
@@ -2001,7 +2011,7 @@ END SUBROUTINE ChannelCompose
 SUBROUTINE GetEvolveChannel(ALPHA, BETA, Qcc, CArea, NodalHydPot, NodalH, &
       NodalAlphac, NodalBetac, NodalKc, NodalPhi0, NodalPhim, NodalAc, Nodallc, Nodalng, &
       NodalKs, NodalAlphas, NodalBetas, NodalAfactor, NodalBfactor, &
-      Tangent, Element, n, Nodes )
+      Tangent, Element, n, Nodes, LimitEffPres)
 !------------------------------------------------------------------------------
   USE MaterialModels
   USE Integration
@@ -2022,6 +2032,8 @@ SUBROUTINE GetEvolveChannel(ALPHA, BETA, Qcc, CArea, NodalHydPot, NodalH, &
      TYPE(Nodes_t) :: Nodes
      TYPE(Element_t), POINTER :: Element
 
+     LOGICAL :: LimitEffPres
+
 !------------------------------------------------------------------------------
 !    Local variables
 !------------------------------------------------------------------------------
@@ -2040,7 +2052,7 @@ SUBROUTINE GetEvolveChannel(ALPHA, BETA, Qcc, CArea, NodalHydPot, NodalH, &
      TYPE(GaussIntegrationPoints_t), TARGET :: IntegStuff
      REAL(KIND=dp) :: s, u, v, w
 
-     REAL(KIND=dp) :: Phi0, PhiG, Afactor, Bfactor, GradPhim, dPw, Ffactor
+     REAL(KIND=dp) :: Phi0, PhiG, EffPressatIP, Afactor, Bfactor, GradPhim, dPw, Ffactor
 
      REAL(KIND=dp) :: GradPhi, Ngrad, nbc, hsheet, nas, nbs, nac, ng, qc, Kc, Ks, lc
      
@@ -2112,8 +2124,15 @@ SUBROUTINE GetEvolveChannel(ALPHA, BETA, Qcc, CArea, NodalHydPot, NodalH, &
 
        ng = SUM(NodalNg(1:n)*Basis(1:n))
        Vc = SUM(NodalAc(1:n)*Basis(1:n))
-       Vc = Vc*ABS(Phi0-PhiG)**(ng-1.0_dp)
-       Vc = Vc*(Phi0-PhiG)
+
+       IF (LimitEffPres) THEN
+         EffPressatIP = MAX(Phi0-PhiG, 0.0_dp)
+       ELSE
+         EffPressatIP = Phi0-PhiG
+       END IF
+       
+       Vc = Vc*ABS(EffPressatIP)**(ng-1.0_dp)
+       Vc = Vc*(EffPressatIP)
 
        Afactor = SUM(NodalAfactor(1:n)*Basis(1:n))
        Bfactor = SUM(NodalBfactor(1:n)*Basis(1:n))

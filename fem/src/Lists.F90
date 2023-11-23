@@ -2099,6 +2099,11 @@ CONTAINS
        ptr % Counter = ptr % Counter + 1
      END IF
 #endif
+#ifdef DEVEL_LISTUSAGE
+     IF( ASSOCIATED( ptr ) ) THEN
+       ptr % Counter = 1
+     END IF
+#endif
      
      IF ( PRESENT(Found) ) THEN
        Found = ASSOCIATED(ptr)
@@ -3069,6 +3074,17 @@ CONTAINS
        ptrb % Name = name
        ptrb % Namelen = lentrim( name )
      END IF
+
+#ifdef DEVEL_LISTCOUNTER
+     IF( ASSOCIATED( ptr ) ) THEN
+       ptr % Counter = ptr % Counter + 1
+     END IF
+#endif
+#ifdef DEVEL_LISTUSAGE
+     IF( ASSOCIATED( ptr ) ) THEN
+       ptr % Counter = 1
+     END IF
+#endif
      
    END SUBROUTINE ListCopyItem
 
@@ -3076,11 +3092,12 @@ CONTAINS
 !> Checks two lists for a given keyword. If it is given then 
 !> copy it as it is to the 2nd list.
 !------------------------------------------------------------------------------
-   SUBROUTINE ListCompareAndCopy( list, listb, name, Found )
+   SUBROUTINE ListCompareAndCopy( list, listb, name, Found, remove )
 !------------------------------------------------------------------------------
      TYPE(ValueList_t), POINTER :: list, listb
      CHARACTER(LEN=*) :: name
      LOGICAL :: Found
+     LOGICAL, OPTIONAL :: remove
 !------------------------------------------------------------------------------
      TYPE(ValueListEntry_t), POINTER :: ptr
      CHARACTER(LEN=LEN_TRIM(Name)) :: str
@@ -3105,6 +3122,11 @@ CONTAINS
      CALL ListCopyItem( ptr, listb ) 
      Found = .TRUE.
 
+     IF( PRESENT(remove) ) THEN
+       IF( remove ) CALL ListRemove( list, name)
+     END IF
+
+     
    END SUBROUTINE ListCompareAndCopy
  
 
@@ -3141,7 +3163,7 @@ CONTAINS
        END IF
        ptr => ptr % Next
      END DO
-
+     
      IF( ncopy > 0 ) THEN
        CALL Info('ListCopyPrefixedKeywords',&
            'Copied '//I2S(ncopy)//' keywords with prefix: '//TRIM(prefix),Level=6)
@@ -4789,15 +4811,16 @@ CONTAINS
  !> we need to solve a small linear system in each element to map the values to
  !> the nodes, and further to the integration point defined by Basis.  
  !------------------------------------------------------------------------------
-   FUNCTION InterpolateIPVariableToBoundary( Element, Basis, Var ) RESULT ( T ) 
+   FUNCTION InterpolateIPVariableToBoundary( Element, Basis, Var, dof ) RESULT ( T ) 
  !------------------------------------------------------------------------------
      TYPE(Element_t), POINTER :: Element
      REAL(KIND=dp) :: Basis(:)
      TYPE(Variable_t), POINTER :: Var
+     INTEGER, OPTIONAL :: dof
      REAL(KIND=dp) :: T
 !------------------------------------------------------------------------------
      TYPE(Element_t), POINTER :: Parent
-     INTEGER :: ipar, npar, i, j, n, np, nip
+     INTEGER :: ipar, npar, i, j, n, np, nip, dofs
      REAL(KIND=dp), ALLOCATABLE :: fip(:),fdg(:)
 
      ! We have to provide interface for this as otherwise we would create a
@@ -4815,7 +4838,13 @@ CONTAINS
      T = 0.0_dp
      n = Element % TYPE % NumberOfNodes     
      npar = 0.0_dp
-
+     dofs = Var % Dofs
+     IF(dofs > 1) THEN
+       IF(.NOT. PRESENT(dof)) THEN
+         CALL Fatal('InterpolateIPVariableToBoundary','Give component of ip variable!')
+       END IF
+     END IF
+                 
      ! Go through both potential parents. If we find the information in both then
      ! take on average. Otherwise use one-side interpolation. 
      DO ipar = 1,2 
@@ -4833,8 +4862,14 @@ CONTAINS
        np = Parent % TYPE % NumberOfNodes       
 
        ALLOCATE( fip(nip), fdg(np) )
-       
-       fip(1:nip) = Var % Values(j+1:j+nip)
+
+       IF( dofs > 1 ) THEN         
+         DO i=1,nip
+           fip(i) = Var % Values(dofs*(j+i-1)+dof)
+         END DO
+       ELSE
+         fip(1:nip) = Var % Values(j+1:j+nip)
+       END IF
        fdg(1:np) = 0.0_dp
           
        CALL Ip2DgFieldInElement( CurrentModel % Mesh, Parent, nip, fip, np, fdg )
@@ -4920,13 +4955,16 @@ CONTAINS
            END IF
          ELSE
            IF( ASSOCIATED( Element % BoundaryInfo ) ) THEN
-             IF( Var % Dofs > 1 ) THEN
-               CALL Fatal('VarsToValuesOnIps','We can only map scalar fields to boundary so far!')
-             END IF
              IF(.NOT. PRESENT(Basis) ) THEN
                CALL Fatal('VarsToValuesOnIps','We need the "Basis" parameter to map stuff to boundaries!')
-             END IF             
-             T(count+1) = InterpolateIPVariableToBoundary( Element, Basis, Var )
+             END IF
+             IF( Var % Dofs > 1 ) THEN             
+               DO l=1,Var % Dofs               
+                 T(count+l) = InterpolateIPVariableToBoundary( Element, Basis, Var, l )
+               END DO
+             ELSE
+               T(count+1) = InterpolateIPVariableToBoundary( Element, Basis, Var )                                
+             END IF               
            ELSE
              CALL Warn('VarsToValuesOnIPs','Could not find dependent IP variable: '//TRIM(Var % Name))
            END IF
@@ -6028,7 +6066,7 @@ CONTAINS
          IF( FirstList ) THEN
            Handle % LValue = LValue
          ELSE
-           IF( XOR( Handle % LValue, LValue ) ) THEN
+           IF(  Handle % LValue .NEQV. LValue ) THEN
              Handle % ConstantEverywhere = .FALSE.
              EXIT
            END IF
@@ -7357,7 +7395,7 @@ CONTAINS
 
 
 !------------------------------------------------------------------------------
-!> This is just a wrapper for getting divergence of a 3D real vector.
+!> This is just a wrapper for getting divergence of a 3D real vector neatly.
 !------------------------------------------------------------------------------
    FUNCTION ListGetElementRealDiv( Handle,dBasisdx,Element,Found,Indexes) RESULT(Rdiv)
 !------------------------------------------------------------------------------
@@ -7367,10 +7405,11 @@ CONTAINS
      LOGICAL, OPTIONAL :: Found
      TYPE(Element_t), POINTER, OPTIONAL :: Element
      INTEGER, POINTER, OPTIONAL :: Indexes(:)
-     REAL(KIND=dp)  :: Rdiv(3)
+     REAL(KIND=dp)  :: Rdiv, Rdiv_comps(3)
 
-     LOGICAL :: Found1, Found2, Found3
+     LOGICAL :: Found1
 
+     IF(PRESENT(Found)) Found = .FALSE.
      Rdiv = 0.0_dp
      
      IF(.NOT. ASSOCIATED( Handle % Handle2 ) ) THEN
@@ -7379,14 +7418,17 @@ CONTAINS
 
      IF( Handle % NotPresentAnywhere .AND. Handle % Handle2 % NotPresentAnywhere &
          .AND.  Handle % Handle3 % NotPresentAnywhere ) THEN
-       IF(PRESENT(Found)) Found = .FALSE.
        RETURN
      END IF
 
-     Rdiv(1) = ListGetElementReal(Handle,dBasisdx(:,1),Element,Found1,Indexes)
-     Rdiv(2) = ListGetElementReal(Handle % Handle2,dBasisdx(:,2),Element,Found2,Indexes)
-     Rdiv(3) = ListGetElementReal(Handle % Handle3,dBasisdx(:,3),Element,Found3,Indexes)
-     IF( PRESENT( Found ) ) Found = Found1 .OR. Found2 .OR. Found3
+     Rdiv_comps(1) = ListGetElementReal(Handle,dBasisdx(:,1),Element,Found1,Indexes)
+     ! We can only take Div of a vector field if all components are present 
+     IF(.NOT. Found1) RETURN          
+     Rdiv_comps(2) = ListGetElementReal(Handle % Handle2,dBasisdx(:,2),Element,Found1,Indexes)
+     Rdiv_comps(3) = ListGetElementReal(Handle % Handle3,dBasisdx(:,3),Element,Found1,Indexes)
+
+     Rdiv = SUM(Rdiv_comps)
+     IF( PRESENT( Found ) ) Found = .TRUE.
      
    END FUNCTION ListGetElementRealDiv
 
@@ -9307,6 +9349,28 @@ CONTAINS
   END FUNCTION ListCheckPresentAnyComponent
 !------------------------------------------------------------------------------  
 
+
+!------------------------------------------------------------------------------
+  FUNCTION ListCheckPrefixAnyComponent( Model, Name ) RESULT( Found )
+!------------------------------------------------------------------------------
+    IMPLICIT NONE    
+    TYPE(Model_t) :: Model
+    CHARACTER(LEN=*) :: Name
+    LOGICAL :: Found
+    INTEGER :: ind
+    TYPE(ValueListEntry_t), POINTER :: ptr
+    
+    Found = .FALSE.
+    DO ind=1, Model % NumberOfComponents
+      ptr => ListFindPrefix( Model % Components(ind) % Values, Name, Found )
+      IF( Found ) EXIT
+    END DO
+!------------------------------------------------------------------------------
+  END FUNCTION ListCheckPrefixAnyComponent
+!------------------------------------------------------------------------------  
+
+
+  
   !------------------------------------------------------------------------------
 !> Check if the keyword is true in any component.
 !------------------------------------------------------------------------------
@@ -9701,14 +9765,22 @@ CONTAINS
                 IsVector = .NOT. ASSOCIATED(Var1)
               END IF
               
-            ELSE IF( Comp <= 3 ) THEN  ! component 2 or 3
+            ELSE IF( Comp == 2 .OR. Comp == 3 ) THEN 
               ! Associated to the previous case, cycle the other components of the vector
               ! and cycle them if they are part of the vector that will be detected above.
- 
+
+              ! 2D: 2 or 3 components
+              ! 3D: 3 components
               Var1 => VariableGet(Variables,TRIM(str(1:j-2))//' 1',ThisOnly)		
               IF( ASSOCIATED( Var1 ) ) THEN
                 Var1 => VariableGet(Variables,TRIM(str(1:j-2))//' '//I2S(4),ThisOnly)		
                 Set = ASSOCIATED( Var1 )
+                IF( .NOT. Set ) THEN
+                  IF( Comp == 2 .AND. dim == 3 ) THEN
+                    Var1 => VariableGet(Variables,TRIM(str(1:j-2))//' '//I2S(dim),ThisOnly)		
+                    Set = .NOT. ASSOCIATED( Var1 )
+                  END IF
+                END IF
               END IF
             END IF
           END IF
@@ -10145,52 +10217,59 @@ END SUBROUTINE
 !-------------------------------------------------------------------------------
 
 
-#ifdef DEVEL_LISTCOUNTER
+#if defined DEVEL_LISTCOUNTER || defined DEVEL_LISTUSAGE
    
    !------------------------------------------------------------------------------
    !> Go through the lists and for each lists show call counts.
    !------------------------------------------------------------------------------
-   SUBROUTINE ReportListCounters( Model ) 
+   SUBROUTINE ReportListCounters( Model, ReportMode ) 
      TYPE(Model_t) :: Model
+     INTEGER :: ReportMode 
+     
      CHARACTER(LEN=MAX_NAME_LEN) :: dirname,filename
-
      INTEGER :: i, totcount, nelem, ReportUnit     
      LOGICAL :: Unused, GotFile
-     
-     CALL Info('ReportListCounters','Saving ListGet operations count per bulk elements')
 
+     IF(ReportMode == 1 ) THEN
+       ! Just initialize the lists from -1 to 0 such that only orginal keywords will be
+       ! reported in mode 2.
+       GOTO 100
+     END IF
+     
      filename = ListGetString( Model % Simulation,'List Counter File',GotFile )     
      IF(.NOT. GotFile ) filename = '../listcounter.dat'
-
+     
      ! We may toggle this to enable is disable automatic writing to file
      ! For example, when we want to collect data automatically from tests. 
      !GotFile = .TRUE.
-       
+     
      IF( GotFile ) THEN
+       CALL Info('ReportListCounters','Saving ListGet operations counts')
        ReportUnit = 10
        !IF( ParEnv % PEs > 1 ) THEN
        !  filename = TRIM(filename)//'.'//I2S(ParEnv % MyPe)
        !END IF         
        OPEN( 10,File=filename,STATUS='UNKNOWN',POSITION='APPEND' )
        CALL GETCWD(dirname)
-
+       
        ! These are only for reference if writing lot of data to same file
        WRITE( ReportUnit,'(A)') 'Working directory: '//TRIM(dirname)
        nelem = Model % Mesh % NumberOfBulkElements       
        WRITE( ReportUnit,'(T4,A)') 'Number of elements: '//I2S(nelem)
        WRITE( ReportUnit,'(T4,A)') 'Number of nodes: '//I2S(Model % Mesh % NumberOfNodes)       
      ELSE
-       IF( .NOT. InfoActive(12) ) RETURN
        ! IF( ParEnv % MyPe /= 0) RETURN 
        ReportUnit = 6
      END IF
               
-     totcount = 0
-     
      ! In the first round write the unused keywords
      ! On the 2nd round write the keywords that 
      Unused = .TRUE.
-100  IF( Unused ) THEN
+     totcount = 0
+     
+100  IF( ReportMode == 1 ) THEN
+       CONTINUE
+     ELSE IF( Unused ) THEN
        WRITE( ReportUnit,'(T4,A)') 'Unused keywords:'       
      ELSE
        WRITE( ReportUnit,'(T4,A)') 'Used keywords:'              
@@ -10222,16 +10301,18 @@ END SUBROUTINE
      DO i=1,Model % NumberOfSolvers
        CALL ReportList('Solver '//I2S(i), Model % Solvers(i) % Values, Unused )
      END DO
-
-     IF( Unused ) THEN
-       Unused = .FALSE.
-       GOTO 100
+     
+     IF( ReportMode == 3 ) THEN
+       IF( Unused ) THEN
+         Unused = .FALSE.
+         GOTO 100
+       END IF
+       CALL Info('ReportListCounters','List operations total count:'//I2S(totcount))     
      END IF
 
-     IF( GotFile ) CLOSE(ReportUnit)
-         
-     CALL Info('ReportListCounters','List operations total count:'//I2S(totcount))     
-
+     IF (ReportMode /= 1) THEN 
+       IF( GotFile ) CLOSE(ReportUnit)
+     END IF
    CONTAINS
 
      
@@ -10253,11 +10334,23 @@ END SUBROUTINE
          n = ptr % NameLen
          m = ptr % Counter 
 
-         IF( Unused .AND. m == 0 ) THEN
-           WRITE( ReportUnit,'(T8,A,T30,A)') TRIM(SectionName),ptr % Name(1:n)         
-         ELSE IF(.NOT. Unused .AND. m > 0 ) THEN
-           WRITE( ReportUnit,'(T8,A,T30,I0,T40,A)') TRIM(SectionName),m,ptr % Name(1:n)
-           totcount = totcount + m
+         IF(ReportMode == 1 ) THEN
+           ! Change existing keywords tag from 0 to -1
+           ptr % Counter = -1
+         ELSE IF(ReportMode == 2 .AND. m == -1 ) THEN
+           ! Do not report "name" as it makes sense to have one. 
+           IF( ptr % Name == 'name' ) THEN
+             CONTINUE
+           ELSE
+             WRITE( ReportUnit,'(T8,A,T30,A)') TRIM(SectionName),ptr % Name(1:n)
+           END IF
+         ELSE IF( ReportMode == 3 ) THEN
+           IF( Unused .AND. m == 0 ) THEN
+             WRITE( ReportUnit,'(T8,A,T30,A)') TRIM(SectionName),ptr % Name(1:n)
+           ELSE IF(.NOT. Unused .AND. m > 0 ) THEN
+             WRITE( ReportUnit,'(T8,A,T30,I0,T40,A)') TRIM(SectionName),m,ptr % Name(1:n)
+             totcount = totcount + m
+           END IF
          END IF
          ptr => ptr % Next
        END DO

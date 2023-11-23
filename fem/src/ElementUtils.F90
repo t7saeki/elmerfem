@@ -126,6 +126,7 @@ CONTAINS
      IF ( ASSOCIATED( Matrix % Values ) )      DEALLOCATE( Matrix % Values )
      IF ( ASSOCIATED( Matrix % MassValues ) )  DEALLOCATE( Matrix % MassValues )
      IF ( ASSOCIATED( Matrix % DampValues ) )  DEALLOCATE( Matrix % DampValues )
+     IF ( ASSOCIATED( Matrix % PrecValues ) )  DEALLOCATE( Matrix % PrecValues )
      IF ( ASSOCIATED( Matrix % BulkValues ) )  DEALLOCATE( Matrix % BulkValues )
      IF ( ASSOCIATED( Matrix % BulkRHS   ) )   DEALLOCATE( Matrix % BulkRHS )
 
@@ -179,6 +180,7 @@ CONTAINS
            IF(ALLOCATED(m % ILUValues)) DEALLOCATE(m % ILUValues)
            IF(ALLOCATED(m % MassValues)) DEALLOCATE(m % MassValues)
            IF(ALLOCATED(m % DampValues)) DEALLOCATE(m % DampValues)
+           IF(ALLOCATED(m % PrecValues)) DEALLOCATE(m % PrecValues)
          END IF
        END DO
        DEALLOCATE(s % IfMatrix)
@@ -195,6 +197,7 @@ CONTAINS
            IF(ALLOCATED(m % ILUValues)) DEALLOCATE(m % ILUValues)
            IF(ALLOCATED(m % MassValues)) DEALLOCATE(m % MassValues)
            IF(ALLOCATED(m % DampValues)) DEALLOCATE(m % DampValues)
+           IF(ALLOCATED(m % PrecValues)) DEALLOCATE(m % PrecValues)
          END IF
        END DO
        DEALLOCATE(s % NbsIfMatrix)
@@ -2014,7 +2017,14 @@ CONTAINS
      END IF
      
      NULLIFY( Matrix % MassValues, Matrix % DampValues, Matrix % Force, Matrix % RHS_im )
-!------------------------------------------------------------------------------
+
+     IF (ListGetLogical(Solver % Values, 'Allocate Preconditioning Matrix', GotIt)) THEN
+       CALL Info(Caller, 'Allocating for separate preconditioning matrix!', Level=20)
+       ALLOCATE(Matrix % PrecValues(SIZE(Matrix % Values)) )
+       Matrix % PrecValues = 0.0d0
+     END IF
+
+     !------------------------------------------------------------------------------
      Matrix % Solver => Solver
      Matrix % DGMatrix = DG
      Matrix % Subband = DOFs * n
@@ -2356,6 +2366,30 @@ CONTAINS
  END SUBROUTINE TangentDirections
 !------------------------------------------------------------------------------
 
+
+!------------------------------------------------------------------------------
+!> Given one or two tangents return the normal direction.
+!> It is assumed that if one tangent is given the normal is in xy-plane otherwise
+!> in 3D. Note that the sign of normal vector is not unique.
+!------------------------------------------------------------------------------
+  FUNCTION NormalDirection( Tangent1,Tangent2 ) RESULT ( Normal ) 
+!------------------------------------------------------------------------------
+   REAL(KIND=dp) :: Normal(3),Tangent1(3)
+   REAL(KIND=dp), OPTIONAL :: Tangent2(3)
+!------------------------------------------------------------------------------
+   REAL(KIND=dp) :: t1(3),t2(3)
+!------------------------------------------------------------------------------
+
+   IF(PRESENT(Tangent2)) THEN
+     Normal = CrossProduct(Tangent1,Tangent2)
+   ELSE
+     Normal(1) = Tangent1(2)
+     Normal(2) = -Tangent1(1)
+   END IF
+   Normal = Normal/SQRT(SUM(Normal**2))       
+!------------------------------------------------------------------------------
+ END FUNCTION NormalDirection
+!------------------------------------------------------------------------------
 
 
 !------------------------------------------------------------------------------
@@ -3223,7 +3257,129 @@ CONTAINS
      Normal = Normal / SQRT(SUM(c**2))
      
    END FUNCTION NormalOfDegenerateElement
- 
+
+
+!------------------------------------------------------------------------------
+   FUNCTION FindBoundaryEdgeIndex(Mesh,Boundary,nedge) RESULT(n)
+!------------------------------------------------------------------------------
+     IMPLICIT NONE
+     INTEGER :: n,nedge
+     TYPE(Mesh_t), POINTER :: Mesh
+     TYPE(Element_t) :: Boundary
+!------------------------------------------------------------------------------
+     INTEGER :: i,j,k,jb1,jb2,je1,je2
+     TYPE(Element_t), POINTER :: Parent, Edge, Face
+!------------------------------------------------------------------------------
+     n = 0
+     SELECT CASE(Boundary % TYPE % ElementCode / 100 )
+     CASE(1)
+       RETURN
+     CASE(2)
+       IF ( nedge==1 ) THEN
+         Parent => Boundary % BoundaryInfo % Left
+         IF ( .NOT. ASSOCIATED(Parent) ) &
+             Parent => Boundary % BoundaryInfo % Right
+
+         jb1 = Boundary % NodeIndexes(1)
+         jb2 = Boundary % NodeIndexes(2)
+         DO i=1,Parent % TYPE % NumberOfEdges
+           Edge => Mesh % Edges(Parent % EdgeIndexes(i))
+           je1 = Edge % NodeIndexes(1)
+           je2 = Edge % NodeIndexes(2)
+           IF ( jb1==je1.AND.jb2==je2 .OR. jb1==je2.AND.jb2==je1) EXIT
+         END DO
+         n = Parent % EdgeIndexes(i)
+       END IF
+     CASE(3,4)
+       j = FindBoundaryFaceIndex(Mesh,Boundary)
+       Face => Mesh % Faces(j)
+       IF ( nedge>0.AND.nedge<=Face % TYPE % NumberOfEdges ) &
+           n = Face % EdgeIndexes(nedge) 
+     END SELECT
+!------------------------------------------------------------------------------
+   END FUNCTION FindBoundaryEdgeIndex
+!------------------------------------------------------------------------------
+
+
+!------------------------------------------------------------------------------
+   FUNCTION FindBoundaryFaceIndex(Mesh,Boundary) RESULT(n)
+!------------------------------------------------------------------------------
+     IMPLICIT NONE
+     INTEGER :: n
+     TYPE(Element_t) :: Boundary
+     TYPE(Mesh_t), POINTER :: Mesh
+!------------------------------------------------------------------------------
+     INTEGER :: i,j,k,m
+     TYPE(Element_t), POINTER :: Parent, Face
+!------------------------------------------------------------------------------
+     Parent => Boundary % BoundaryInfo % Left
+     IF ( .NOT. ASSOCIATED(Parent) ) &
+         Parent => Boundary % BoundaryInfo % Right
+
+     DO i=1,Parent % TYPE % NumberOfFaces
+       Face => Mesh % Faces(Parent % FaceIndexes(i))
+       m = 0
+       DO j=1,Face % TYPE % NumberOfNodes
+         DO k=1,Boundary % TYPE % NumberOfNodes
+           IF ( Face % NodeIndexes(j)==Boundary % NodeIndexes(k)) m=m+1
+         END DO
+       END DO
+       IF ( m==Face % TYPE % NumberOfNodes) EXIT
+     END DO
+     n = Parent % FaceIndexes(i)
+!------------------------------------------------------------------------------
+   END FUNCTION FindBoundaryFaceIndex
+!------------------------------------------------------------------------------
+
+   
+!-----------------------------------------------------------------------------   
+!> Given basis function values at surface element find the corresponding local
+!> coordinate in the parent element. 
+!------------------------------------------------------------------------------
+   SUBROUTINE FindParentUVW( Element, n, Parent, np, U, V, W, Basis ) 
+!------------------------------------------------------------------------------
+     IMPLICIT NONE
+     TYPE( Element_t ), POINTER :: Element
+     TYPE( Element_t ), POINTER :: Parent
+     INTEGER :: n, np
+     REAL( KIND=dp ) :: U, V, W, Basis(:)
+!------------------------------------------------------------------------------
+    INTEGER :: i, j, nParent, check 
+    REAL(KIND=dp) :: NodalParentU(n), NodalParentV(n), NodalParentW(n)
+!------------------------------------------------------------------------------
+
+    Check = 0
+
+    DO i = 1,n
+      DO j = 1,np
+        IF( Element % NodeIndexes(i) == Parent % NodeIndexes(j) ) THEN
+          Check = Check + 1
+          NodalParentU(i) = Parent % Type % NodeU(j)
+          NodalParentV(i) = Parent % Type % NodeV(j)
+          NodalParentW(i) = Parent % Type % NodeW(j)
+        END IF
+      END DO
+    END DO
+
+    IF( Check /= n ) THEN
+      IF(n /= Element % TYPE % NumberOfNodes ) THEN
+        CALL Warn('FindParentUVW','Inconsistent size for "n"!')
+      END IF
+      IF(np /= Parent % TYPE % NumberOfNodes ) THEN
+        CALL Warn('FindParentUVW','Inconsistent size for "np"!')
+      END IF
+      CALL Fatal('FindParentUVW','Could not find all nodes in parent!') 
+    END IF
+    
+    U = SUM( Basis(1:n) * NodalParentU(1:n) )
+    V = SUM( Basis(1:n) * NodalParentV(1:n) )
+    W = SUM( Basis(1:n) * NodalParentW(1:n) )
+!------------------------------------------------------------------------------      
+  END SUBROUTINE FindParentUVW
+!------------------------------------------------------------------------------      
+
+
+   
 END MODULE ElementUtils
 
 !> \} ElmerLib

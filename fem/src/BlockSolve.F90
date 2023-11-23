@@ -585,8 +585,8 @@ CONTAINS
           END IF
           CALL Info('BlockPickMatrix','Picking simple block matrix ('&
               //I2S(RowVar)//','//I2S(ColVar)//')',Level=20)          
-          CALL CRS_BlockMatrixPick(SolverMatrix,Amat,NoVar,RowVar,ColVar)          
-            
+          CALL CRS_BlockMatrixPick(SolverMatrix,Amat,NoVar,RowVar,ColVar,RowVar == ColVar )          
+
           IF( EliminateZero ) THEN
             IF( Amat % NumberOfRows > 0 ) THEN
               SumAbsMat = SUM( ABS( Amat % Values ) )
@@ -1857,14 +1857,18 @@ CONTAINS
         IF( NoVar /= 2 .AND. NoVar /= 4 ) THEN
           CALL Fatal('BlockPrecMatrix','Assuming 2 or 4 blocks for the complex preconditioner!')
         END IF
-        
+
         CALL Info('BlockPrecMatrix','Creating preconditioning matrix from block sums',Level=8)       
         CALL CRS_CopyMatrixTopology( TotMatrix % Submatrix(RowVar,RowVar) % Mat, &
             TotMatrix % Submatrix(RowVar,RowVar) % PrecMat )   
-
-        Amat => TotMatrix % Submatrix(RowVar,RowVar) % PrecMat
-        AMat % Values = TotMatrix % Submatrix(RowVar,RowVar) % Mat % Values                
-        
+        Amat => TotMatrix % Submatrix(RowVar,RowVar) % PrecMat        
+        IF( ASSOCIATED( TotMatrix % Submatrix(RowVar,RowVar) % Mat % PrecValues ) ) THEN
+          AMat % Values = TotMatrix % Submatrix(RowVar,RowVar) % Mat % PrecValues                
+          DEALLOCATE( TotMatrix % Submatrix(RowVar,RowVar) % Mat % PrecValues )
+        ELSE
+          AMat % Values = TotMatrix % Submatrix(RowVar,RowVar) % Mat % Values                
+        END IF
+          
         IF( RowVar == 1 .OR. RowVar == 3 ) THEN
           ColVar = RowVar + 1
         ELSE
@@ -3003,6 +3007,16 @@ CONTAINS
           END DO
         END DO
 
+#if 0
+        ! This does not seem to be necessary but actually harmfull.
+        A => TotMatrix % SubMatrix(k,l) % PrecMat
+        IF( A % NumberOfRows == 0 ) CYCLE
+        DO i=1,n    
+          DO j=A % Rows(i),A % Rows(i+1)-1
+            A % Values(j) = A % Values(j) * Diag(i)
+          END DO
+        END DO
+#endif
       END DO
         
       IF( PRESENT( bext ) ) THEN
@@ -3070,13 +3084,15 @@ CONTAINS
     REAL(KIND=dp) :: nrm
     LOGICAL :: GotOrder, BlockGS, Found, NS, ScaleSystem, DoSum, &
         IsComplex, BlockScaling, DoDiagScaling, DoPrecScaling, UsePrecMat, Trans, &
-        Isolated, NoNestedScaling, DoAMGXmv
+        Isolated, NoNestedScaling, DoAMGXmv, CalcLoads
     CHARACTER(:), ALLOCATABLE :: str
     INTEGER(KIND=AddrInt) :: AddrFunc
     EXTERNAL :: AddrFunc
 
     CALL Info('BlockMatrixPrec','Starting block matrix preconditioning',Level=8)
 
+    DoAMGXMV = ListGetLogical( SolverRef % Values, 'Block AMGX M-V', Found)
+    
     n = ipar(3)
     
     IF( InfoActive(25) ) THEN
@@ -3284,7 +3300,10 @@ CONTAINS
         CALL AMGXSolver( A, x, btmp, ASolver )
         IF( ScaleSystem ) CALL BackScaleLinearSystem(ASolver,A,btmp,x)
       ELSE
+        CalcLoads = ListGetLogical( ASolver % Values, 'Calculate Loads', Found )
+        CALL ListAddLogical( ASolver % Values, 'Calculate Loads', .FALSE.)
         CALL SolveLinearSystem( A, btmp, x, Var % Norm, Var % DOFs, ASolver )
+        IF (CalcLoads) CALL ListAddLogical( ASolver % Values, 'Calculate Loads', .TRUE.)        
       END IF
 
       ! If this was a special preconditioning matrix then update the solution in the scaled system. 
@@ -3705,7 +3724,11 @@ CONTAINS
           ! ParallelInitSolve expects full vectors
           IF ( i /= j ) THEN
             IF(ASSOCIATED(A % ParMatrix)) CALL ParallelInitSolve(A,r,r,r)
-          ELSE 
+          ELSE
+            IF (ASSOCIATED(A % ParMatrix % SplittedMatrix % InsideMatrix % PrecValues)) THEN
+              IF (.NOT. ASSOCIATED(A % PrecValues)) & 
+                  NULLIFY(A % ParMatrix % SplittedMatrix % InsideMatrix % PrecValues)
+            END IF
             CALL ParallelInitSolve(A, TotMatrix % Subvector(i) % Var % Values, A % rhs, r )
             IF( ASSOCIATED(SolverMatrix)) THEN
               x(offset(i)+1:offset(i+1)) = TotMatrix % SubVector(i) % Var % Values        
@@ -4427,6 +4450,11 @@ CONTAINS
     END IF
 
     CALL ListPushNamespace('outer:')
+
+    IF (BlockScaling) THEN
+      ! This simplifies writing a consistent sif file:
+      CALL ListAddLogical(Solver % Values, 'Linear System Row Equilibration', .TRUE.)      
+    END IF
     
     ! The case with one block is mainly for testing and developing features
     ! related to nonlinearity and assembly.
