@@ -1671,13 +1671,14 @@ void MainWindow::readInputFile(QString fileName) {
 
     return;
 
-#ifdef EG_OCC
 
   } else if ((fileSuffix.toLower() == "brep") ||
              (fileSuffix.toLower() == "step") ||
              (fileSuffix.toLower() == "stp") ||
              (fileSuffix.toLower() == "iges") ||
              (fileSuffix.toLower() == "igs")) {
+
+#ifdef EG_OCC
 
     meshControl->ui.nglibRadioButton->setChecked(true);
     meshControl->generatorType = GEN_NGLIB;
@@ -1698,6 +1699,13 @@ void MainWindow::readInputFile(QString fileName) {
 
     nglibInputOk = true;
 
+#else
+    
+    logMessage("Unable to import file " + fileName);
+    logMessage("ElmerGUI must be built with -DWITH_OCC option to import .brep, .step, .stp, .iges or .igs file");
+    activeGenerator = GEN_UNKNOWN;
+    return;
+    
 #endif
 
   } else if ((fileSuffix.toLower() == "in2d")) {
