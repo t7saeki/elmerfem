@@ -350,6 +350,8 @@ private slots:
 
   void displacementScaleFactorSpinBoxValueChanged(double);
   void timestepSliderValueChanged(int);
+  
+  void displace();
 
 private:
   QMenu *fileMenu;

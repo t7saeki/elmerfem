@@ -43,11 +43,22 @@
 #include <QtGui>
 #include <iostream>
 #include <vtkXMLUnstructuredGridReader.h>
+#include <vtkXMLPUnstructuredGridReader.h>
+#include <vtkXMLReader.h>
 #include <vtkUnstructuredGrid.h>
 #include <vtkDataSet.h>
 #include <vtkPointData.h>
 #include <vtkCellData.h>
 #include "readepfile.h"
+
+#if WITH_QT6
+#include <QRegularExpression>
+#define REG_EXP_CLASS QRegularExpression
+#define OPTION_CASE_INSENSITIVE QRegularExpression::CaseInsensitiveOption
+#else 
+#define REG_EXP_CLASS QRegExp
+#define OPTION_CASE_INSENSITIVE Qt::CaseInsensitive
+#endif
 
 using namespace std;
 
@@ -77,7 +88,7 @@ ReadEpFile::~ReadEpFile()
 
 void ReadEpFile::browseButtonClickedSlot()
 {
-  QString fileName = QFileDialog::getOpenFileName(this, tr("Select input file"), "", tr("Postprocessor files (*.ep *.vtu);;ElmerPost files (*.ep);;Paraview files (*.vtu)"));
+  QString fileName = QFileDialog::getOpenFileName(this, tr("Select input file"), "", tr("Postprocessor files (*.ep *.vtu *.pvtu);;ElmerPost files (*.ep);;Paraview files (*.vtu *.pvtu)"));
 
   ui.fileName->setText(fileName.trimmed());
   ui.start->setValue(1);
@@ -135,23 +146,40 @@ void ReadEpFile::readHeader()
 
   int nodes, elements, timesteps, components;
 
-  if(ui.fileName->text().endsWith(".vtu", Qt::CaseInsensitive)){
-  
-    vtkXMLUnstructuredGridReader* reader =  vtkXMLUnstructuredGridReader::New();
-    reader->SetFileName(ui.fileName->text().toLatin1().data());
-    reader->Update();
-    
-	nodes = reader->GetNumberOfPoints();
-    elements = reader->GetNumberOfCells();
-	components = 1;
-    timesteps = reader->GetNumberOfTimeSteps();
-	if(timesteps == 0) timesteps = 1;
-	components = 0;
-    vtkUnstructuredGrid *output = reader->GetOutput();
+  if(ui.fileName->text().endsWith(".vtu", Qt::CaseInsensitive) || 
+		ui.fileName->text().endsWith(".pvtu", Qt::CaseInsensitive)){
+
+	vtkXMLReader* reader = NULL;
+	vtkUnstructuredGrid *output = NULL;
+	if(ui.fileName->text().endsWith(".vtu", Qt::CaseInsensitive)){
+		vtkXMLUnstructuredGridReader* sreader =  vtkXMLUnstructuredGridReader::New();
+		sreader->SetFileName(ui.fileName->text().toLatin1().data());
+		sreader->Update();
+		output = sreader->GetOutput();
+		reader = sreader;
+	}else{ // .pvtu files
+		vtkXMLPUnstructuredGridReader* preader =  vtkXMLPUnstructuredGridReader::New();
+		preader->SetFileName(ui.fileName->text().toLatin1().data());
+		preader->Update();
+		output = preader->GetOutput();
+		reader = preader;
+	}
+	
+	if( reader == NULL || output == NULL){
+		cout << "failed to load (p)vtu files." << endl;
+		reader->Delete();
+		return;
+	}
+	
 	vtkPointData *pointData = output->GetPointData();
 	vtkCellData *cellData = output->GetCellData();
-    
-    for(int i = 0; i < reader->GetNumberOfPointArrays(); i++){
+	nodes = output->GetNumberOfPoints();
+	elements = output->GetNumberOfCells();
+	timesteps = reader->GetNumberOfTimeSteps();
+	if(timesteps == 0) timesteps = 1;
+	components = 0;
+	
+	for(int i = 0; i < reader->GetNumberOfPointArrays(); i++){
 	  components += pointData->GetArray(reader->GetPointArrayName(i))->GetNumberOfComponents();
     }
 	reader->Delete();
@@ -161,13 +189,15 @@ void ReadEpFile::readHeader()
 	QDir dir = info.dir();
 	QString name = info.fileName();
 	int l = name.length();
-	int i = 4;
+	int iDot = name.lastIndexOf(QChar('.')); 
+	QString extension = name.mid(iDot); // This includes the dot
+	int i = extension.length();
 	while(name.at(l-i-1).isNumber() && i>0) i++;
-	QString filter = name.left(l-i) + "*.vtu";
-	cout << ".vtu file: " <<  filter.toLatin1().data() << endl;
 
+	QString filter = name.left(l-i) + "*" + extension;
+	cout << extension.toLatin1().data() << " file: " <<  filter.toLatin1().data() << endl;
 	QStringList filterList;
-	filterList << "*.vtu";
+	filterList << filter;
 	vtuFileNameList = dir.entryList(filterList,  QDir::Readable|QDir::Files|QDir::NoSymLinks, QDir::SortFlags(QDir::Name | QDir::IgnoreCase));
 	//for(int i=0; i < vtuFileNameList.length(); i++){
 	//	cout <<  vtuFileNameList.at(i).toLatin1().data() << endl;

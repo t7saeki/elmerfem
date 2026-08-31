@@ -5077,7 +5077,7 @@ void MainWindow::showVtkPostSlot() {
   Ui::parallelDialog ui = parallel->ui;
   bool parallelActive = ui.parallelActiveCheckBox->isChecked();
 
-  if (parallelActive) {
+  if (parallelActive && postFileName.endsWith(".ep", Qt::CaseInsensitive)) {
 
     // unify mesh:
     if (meshUnifier->state() == QProcess::Running) {
@@ -5128,14 +5128,14 @@ void MainWindow::showVtkPostSlot() {
   QFileInfo info(postFileName);
   QDir dir = info.dir();
   if(postFileName.endsWith(".vtu", Qt::CaseInsensitive)){
-    if(!parallelActive){
-      QString vtuFileName = postFileName;
-		  vtuFileName.insert(vtuFileName.length()-4, "_t0001");
-      if(!vtkPost->ReadSingleVtuFile(vtuFileName)){
+    QString vtuFileName = postFileName;
+	vtuFileName.insert(vtuFileName.length()-4, "_t0001");
+    if(parallelActive){ vtuFileName.insert(vtuFileName.length()-3, "p"); }
+    if(!vtkPost->ReadSingleVtuFile(vtuFileName)){
         vtuFileName = postFileName;
-		    vtuFileName.insert(vtuFileName.length()-4, "0001");
-		    vtkPost->ReadSingleVtuFile(vtuFileName);
-      }
+		vtuFileName.insert(vtuFileName.length()-4, "0001");
+		if(parallelActive){ vtuFileName.insert(vtuFileName.length()-3, "p"); }
+		vtkPost->ReadSingleVtuFile(vtuFileName);
     }
   }else{
     vtkPost->ReadPostFile(postFileName);

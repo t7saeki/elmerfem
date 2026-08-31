@@ -49,6 +49,7 @@
 #endif
 #include <iostream>
 #include <vtkXMLUnstructuredGridReader.h>
+#include <vtkXMLPUnstructuredGridReader.h>
 #include <vtkUnstructuredGrid.h>
 #include <vtkDataSet.h>
 #include <vtkPointData.h>
@@ -57,7 +58,9 @@
 #include <vtkQuadraticHexahedron.h>
 #include <vtkTriQuadraticHexahedron.h>
 #include <vtkQuadraticTriangle.h>
+#include <vtkBiQuadraticTriangle.h>
 #include <vtkQuadraticQuad.h>
+#include <vtkBiQuadraticQuad.h>
 #include <vtkQuadraticEdge.h>
 
 #include "epmesh.h"
@@ -1175,6 +1178,7 @@ bool VtkPost::ReadPostFile(QString postFileName)
 {
   if(postFileName.endsWith(".ep", Qt::CaseInsensitive)) return ReadElmerPostFile(postFileName);
   if(postFileName.endsWith(".vtu", Qt::CaseInsensitive)) return ReadVtuFile(postFileName);
+  if(postFileName.endsWith(".pvtu", Qt::CaseInsensitive)) return ReadVtuFile(postFileName);
 
   return false;
 }
@@ -1238,12 +1242,31 @@ bool VtkPost::ReadVtuFile(QString postFileName)
   int end = readEpFile->ui.end->value() - 1;
 
   QString postFilePath = dir.filePath(readEpFile->vtuFileNameList.at(start));
-	vtkXMLUnstructuredGridReader* reader =  vtkXMLUnstructuredGridReader::New();
-	reader->SetFileName(postFilePath.toLatin1().data());
-	reader->Update();
 
-	nodes = reader->GetNumberOfPoints();
-	elements = reader->GetNumberOfCells();
+	vtkXMLReader* reader = NULL;
+	vtkUnstructuredGrid *output = NULL;
+	if(postFilePath.endsWith(".vtu", Qt::CaseInsensitive)){
+		vtkXMLUnstructuredGridReader* sreader =  vtkXMLUnstructuredGridReader::New();
+		sreader->SetFileName(postFilePath.toLatin1().data());
+		sreader->Update();
+		output = sreader->GetOutput();
+		reader = sreader;
+	}else{ // .pvtu files
+		vtkXMLPUnstructuredGridReader* preader =  vtkXMLPUnstructuredGridReader::New();
+		preader->SetFileName(postFilePath.toLatin1().data());
+		preader->Update();
+		output = preader->GetOutput();
+		reader = preader;
+	}
+	
+	if( reader == NULL || output == NULL){
+		cout << "failed to load (p)vtu files." << endl;
+		reader->Delete();
+		return false;
+	}
+	
+	nodes = output->GetNumberOfPoints();
+	elements = output->GetNumberOfCells();
 	timesteps = readEpFile->vtuFileNameList.length();
 
   cout << "vtu file header says:" << endl;
@@ -1285,7 +1308,6 @@ bool VtkPost::ReadVtuFile(QString postFileName)
   //-----------------------
     QString fieldType;
   	components = 0;
-	vtkUnstructuredGrid *output = reader->GetOutput();
 	vtkPointData *pointData = output->GetPointData();
 	vtkCellData *cellData = output->GetCellData();
 
@@ -1385,11 +1407,27 @@ bool VtkPost::ReadVtuFile(QString postFileName)
   for(int l = start; l <= end; l++){
 	if(l != start){
 		reader->Delete();
-		reader =  vtkXMLUnstructuredGridReader::New();
-		postFilePath = dir.filePath(readEpFile->vtuFileNameList.at(l));
-		reader->SetFileName(postFilePath.toLatin1().data());
-		reader->Update();
-		output = reader->GetOutput();
+		postFilePath = dir.filePath(readEpFile->vtuFileNameList.at(l));		
+		if(postFilePath.endsWith(".vtu", Qt::CaseInsensitive)){
+			vtkXMLUnstructuredGridReader* sreader =  vtkXMLUnstructuredGridReader::New();
+			sreader->SetFileName(postFilePath.toLatin1().data());
+			sreader->Update();
+			output = sreader->GetOutput();
+			reader = sreader;
+		}else{ // .pvtu files
+			vtkXMLPUnstructuredGridReader* preader =  vtkXMLPUnstructuredGridReader::New();
+			preader->SetFileName(postFilePath.toLatin1().data());
+			preader->Update();
+			output = preader->GetOutput();
+			reader = preader;
+		}
+		
+		if( reader == NULL || output == NULL){
+			cout << "failed to load (p)vtu files." << endl;
+			reader->Delete();
+			return false;
+		}
+		
 		pointData = output->GetPointData();
 		cellData = output->GetCellData();
 		//cout << "<VTU> "<<  postFilePath.toLatin1().data() << endl;
@@ -1425,6 +1463,7 @@ bool VtkPost::ReadVtuFile(QString postFileName)
 
   // Subtract displacement from nodes:
   // ---------------------------------
+  bool hasDisplacement = false;  
   for(int j = 0; j < scalarFields; j++){
 	  if(scalarField[j].name == "displacement_x" || scalarField[j].name == "Displacement_x"){
 		  for(int i = 0; i < nodes; i++) {
@@ -1451,10 +1490,12 @@ bool VtkPost::ReadVtuFile(QString postFileName)
 			sfy->value[i] = epMesh->epNode[i].x[1];
 			sfz->value[i] = epMesh->epNode[i].x[2];
 		  }
+		  hasDisplacement = true;  
 	  }
   }
-
-
+  displacementScaleFactorSpinBox.setEnabled(hasDisplacement);
+  displaceAct->setEnabled(hasDisplacement);
+  
   // Initial min & max values:
   //============================
   int ifield=0, size;
@@ -1526,6 +1567,7 @@ bool VtkPost::ReadVtuFile(QString postFileName)
   }
 
   timesteps = real_timesteps;
+  timeStep->ui.timeStep->setValue(1);
   timeStep->maxSteps = timesteps;
   timeStep->ui.start->setValue(1);
   timeStep->ui.stop->setValue(timesteps);
@@ -1572,8 +1614,17 @@ bool VtkPost::ReadVtuFile(QString postFileName)
   readEpFile->setWindowTitle("Read input file");
   readEpFile->repaint();
 
+  timestepSlider->setEnabled(timesteps > 1);
+  playAct->setEnabled(timesteps > 1);
+  timestepSlider->setRange(1,timesteps);
+  timestepSlider->setValue(1);
+  timestepAct->setText( "1/" + QString::number(timesteps));// + " ");
+
   // Draw:
   //---------------------------
+  renderer->GetActiveCamera()->GetPosition(initialCameraPosition);
+  initialCameraRoll = renderer->GetActiveCamera()->GetRoll();
+  setWindowTitle("ElmerVTK postprocessor - " + postFileName);
   if(postFileName != lastPostFileName){
 	drawSurfaceAct->setChecked(true);
     drawVectorAct->setChecked(false);
@@ -1586,17 +1637,6 @@ bool VtkPost::ReadVtuFile(QString postFileName)
   }else{
     redrawSlot();
   }
-
-  timestepSlider->setEnabled(timesteps > 1);
-  playAct->setEnabled(timesteps > 1);
-  timestepSlider->setRange(1,timesteps);
-  timestepSlider->setValue(1);
-  timestepAct->setText( "1/" + QString::number(timesteps));// + " ");
-
-  renderer->GetActiveCamera()->GetPosition(initialCameraPosition);
-  initialCameraRoll = renderer->GetActiveCamera()->GetRoll();
-
-  setWindowTitle("ElmerVTK postprocessor - " + postFileName);
 
   return true;
 }
@@ -1900,6 +1940,7 @@ bool VtkPost::ReadElmerPostFile(QString postFileName)
   }
 
   timesteps = real_timesteps;
+  timeStep->ui.timeStep->setValue(1);
   timeStep->maxSteps = timesteps;
   timeStep->ui.start->setValue(1);
   timeStep->ui.stop->setValue(timesteps);
@@ -1948,8 +1989,17 @@ bool VtkPost::ReadElmerPostFile(QString postFileName)
   readEpFile->setWindowTitle("Read input file");
   readEpFile->repaint();
 
+  timestepSlider->setEnabled(timesteps > 1);
+  playAct->setEnabled(timesteps > 1);
+  timestepSlider->setRange(1,timesteps);
+  timestepSlider->setValue(1);
+  timestepAct->setText( "1/" + QString::number(timesteps));// + " ");
+  
   // Draw:
   //---------------------------
+  renderer->GetActiveCamera()->GetPosition(initialCameraPosition);
+  initialCameraRoll = renderer->GetActiveCamera()->GetRoll();
+  setWindowTitle("ElmerVTK postprocessor - " + postFileName);
   if(postFileName != lastPostFileName){
 	drawSurfaceAct->setChecked(true);
     drawVectorAct->setChecked(false);
@@ -1962,17 +2012,6 @@ bool VtkPost::ReadElmerPostFile(QString postFileName)
   }else{
     redrawSlot();
   }
-
-  timestepSlider->setEnabled(timesteps > 1);
-  playAct->setEnabled(timesteps > 1);
-  timestepSlider->setRange(1,timesteps);
-  timestepSlider->setValue(1);
-  timestepAct->setText( "1/" + QString::number(timesteps));// + " ");
-
-  renderer->GetActiveCamera()->GetPosition(initialCameraPosition);
-  initialCameraRoll = renderer->GetActiveCamera()->GetRoll();
-
-  setWindowTitle("ElmerVTK postprocessor - " + postFileName);
 
   return true;
 }
@@ -2059,6 +2098,51 @@ void VtkPost::regenerateGridsSlot()
   groupChangedSlot(NULL);
 }
 
+
+void VtkPost::displace()
+{
+  int index = -1;
+  for(int i = 0; i < scalarFields; i++) {
+    ScalarField* sf = &scalarField[i];
+    if(sf->name == "nodes_x") {
+      index = i;
+      break;
+    }
+  }
+
+  if((index < 0) || (index + 2 > scalarFields - 1)) return;
+
+  double x[3];
+  ScalarField* sfx = &scalarField[index+0];
+  ScalarField* sfy = &scalarField[index+1];
+  ScalarField* sfz = &scalarField[index+2];	
+	
+  // Displace geometry by displacement field
+  bool hasDisplacement = false;
+  for(int j = 0; j < scalarFields; j++){
+    if(scalarField[j].name == "displacement_x" || scalarField[j].name == "Displacement_x"){
+	  hasDisplacement = true;
+	}
+  }
+  
+  vtkPoints* points = volumeGrid->GetPoints();
+  int ts = timeStep->ui.timeStep->value()-1;
+  if(hasDisplacement && displaceAct->isChecked()){
+	  double scale = displacementScaleFactorSpinBox.value();
+	  for(int j = 0; j < scalarFields; j++){
+		if(scalarField[j].name == "displacement_x" || scalarField[j].name == "Displacement_x"){
+			for(int i = 0; i < epMesh->epNodes; i++) {
+				x[0] = sfx->value[i] + scalarField[j+0].value[(ts*epMesh->epNodes)+i] * scale;
+				x[1] = sfy->value[i] + scalarField[j+1].value[(ts*epMesh->epNodes)+i] * scale;
+				x[2] = sfz->value[i] + scalarField[j+2].value[(ts*epMesh->epNodes)+i] * scale;
+				points->SetPoint(i, x);
+			}
+		}
+	  }
+	  points->Modified();
+  }
+}
+
 void VtkPost::groupChangedSlot(QAction* groupAction)
 {
   // Status of groupAction has changed: regenerate grids
@@ -2110,29 +2194,6 @@ void VtkPost::groupChangedSlot(QAction* groupAction)
     points->InsertPoint(i, x);
   }
 
-  // Displace geometry by displacement field
-  bool hasDisplacement = false;
-  for(int j = 0; j < scalarFields; j++){
-    if(scalarField[j].name == "displacement_x" || scalarField[j].name == "Displacement_x"){
-	  hasDisplacement = true;
-	}
-  }
-  displacementScaleFactorSpinBox.setEnabled(hasDisplacement);
-  displaceAct->setEnabled(hasDisplacement);
-  if(hasDisplacement && displaceAct->isChecked()){
-	  double scale = displacementScaleFactorSpinBox.value();
-	  for(int j = 0; j < scalarFields; j++){
-		if(scalarField[j].name == "displacement_x" || scalarField[j].name == "Displacement_x"){
-			for(int i = 0; i < epMesh->epNodes; i++) {
-				x[0] = sfx->value[i] + scalarField[j+0].value[i] * scale;
-				x[1] = sfy->value[i] + scalarField[j+1].value[i] * scale;
-				x[2] = sfz->value[i] + scalarField[j+2].value[i] * scale;
-				points->InsertPoint(i, x);
-			}
-		}
-	  }
-  }
-
   volumeGrid->SetPoints(points);
   surfaceGrid->SetPoints(points);
   lineGrid->SetPoints(points);
@@ -2162,8 +2223,10 @@ void VtkPost::groupChangedSlot(QAction* groupAction)
   vtkTriQuadraticHexahedron* tqhexa = vtkTriQuadraticHexahedron::New();
   vtkTriangle* tria = vtkTriangle::New();
   vtkQuadraticTriangle* qtria = vtkQuadraticTriangle::New();
+  vtkBiQuadraticTriangle* bqtria = vtkBiQuadraticTriangle::New();
   vtkQuad* quad = vtkQuad::New();
   vtkQuadraticQuad* qquad = vtkQuadraticQuad::New();
+  vtkBiQuadraticQuad* bqquad = vtkBiQuadraticQuad::New();
   vtkLine* line = vtkLine::New();
   vtkQuadraticEdge* qedge = vtkQuadraticEdge::New();
   vtkUnstructuredGrid* grid = NULL;
@@ -2181,8 +2244,10 @@ void VtkPost::groupChangedSlot(QAction* groupAction)
 		case 827: cell = tqhexa;  grid = volumeGrid; gridHash = &volumeGridHash; break;
 		case 303: cell = tria; grid = surfaceGrid; gridHash = &surfaceGridHash; break;
 		case 306: cell = qtria; grid = surfaceGrid; gridHash = &surfaceGridHash; break;
+		case 307: cell = bqtria; grid = surfaceGrid; gridHash = &surfaceGridHash; break;
 		case 404: cell = quad; grid = surfaceGrid; gridHash = &surfaceGridHash; break;
 		case 408: cell = qquad; grid = surfaceGrid; gridHash = &surfaceGridHash; break;
+		case 409: cell = bqquad; grid = surfaceGrid; gridHash = &surfaceGridHash; break; 
 		case 202: cell = line; grid = lineGrid; gridHash = &lineGridHash; break;
 		case 203: cell = qedge; grid = lineGrid; gridHash = &lineGridHash; break;
 		default: cell = NULL; grid = NULL; gridHash = NULL; break;
@@ -2213,12 +2278,39 @@ void VtkPost::groupChangedSlot(QAction* groupAction)
   tqhexa->Delete();
   tria->Delete();
   qtria->Delete();
+  bqtria->Delete();
   quad->Delete();
   qquad->Delete();
+  bqquad->Delete();
   line->Delete();
   qedge->Delete();
 
-  if(timeStep->ui.regenerateBeforeDrawing->isChecked()) return;
+/*
+  // Displace geometry by displacement field
+  bool hasDisplacement = false;
+  for(int j = 0; j < scalarFields; j++){
+    if(scalarField[j].name == "displacement_x" || scalarField[j].name == "Displacement_x"){
+	  hasDisplacement = true;
+	}
+  }
+  int ts = timeStep->ui.timeStep->value()-1;
+  if(hasDisplacement && displaceAct->isChecked()){
+	  double scale = displacementScaleFactorSpinBox.value();
+	  for(int j = 0; j < scalarFields; j++){
+		if(scalarField[j].name == "displacement_x" || scalarField[j].name == "Displacement_x"){
+			for(int i = 0; i < epMesh->epNodes; i++) {
+				x[0] = sfx->value[i] + scalarField[j+0].value[(ts*epMesh->epNodes)+i] * scale;
+				x[1] = sfy->value[i] + scalarField[j+1].value[(ts*epMesh->epNodes)+i] * scale;
+				x[2] = sfz->value[i] + scalarField[j+2].value[(ts*epMesh->epNodes)+i] * scale;
+				points->SetPoint(i, x);
+			}
+		}
+	  }
+	  points->Modified();
+  }
+*/
+
+   if(timeStep->ui.regenerateBeforeDrawing->isChecked()) return;
 
   redrawSlot();
 
@@ -2267,18 +2359,19 @@ void VtkPost::redrawSlot()
   if(!postFileRead) return;
 
 #ifdef EG_MATC
-   VARIABLE *tvar = var_check((char *)"t");
-   if (!tvar) tvar=var_new((char *)"t", TYPE_DOUBLE,1,1 );
-   M(tvar,0,0) = (double)timeStep->ui.timeStep->value();
+  VARIABLE *tvar = var_check((char *)"t");
+  if (!tvar) tvar=var_new((char *)"t", TYPE_DOUBLE,1,1 );
+  M(tvar,0,0) = (double)timeStep->ui.timeStep->value();
 
-   QString dosome = timeStep->ui.doBefore->text();
-   matc->ui.mcEdit->clear();
-   matc->ui.mcEdit->insert(dosome);
-   matc->domatc(this);
+  QString dosome = timeStep->ui.doBefore->text();
+  matc->ui.mcEdit->clear();
+  matc->ui.mcEdit->insert(dosome);
+  matc->domatc(this);
 #endif
 
-   if(timeStep->ui.regenerateBeforeDrawing->isChecked())
-     regenerateGridsSlot();
+  if(timeStep->ui.regenerateBeforeDrawing->isChecked()) regenerateGridsSlot();
+
+  displace();
 
   drawMeshPointSlot();
   drawMeshEdgeSlot();
