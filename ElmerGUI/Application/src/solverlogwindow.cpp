@@ -148,7 +148,8 @@ SolverLogWindow::SolverLogWindow(QWidget *parent) : QMainWindow(parent) {
 
   textEdit = new QTextEdit;
   textEdit->setLineWrapMode(QTextEdit::NoWrap);
-
+  textEdit->setUndoRedoEnabled(false);
+  
   setCentralWidget(textEdit);
 
   lineEdit = new QLineEdit;
