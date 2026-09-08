@@ -336,6 +336,9 @@ MainWindow::MainWindow() {
   sifWindow->resize(defW - 50, defH - 50);
   solverLogWindow->resize(defW - 50, defH - 50);
 
+  solverLogFile = NULL;
+  solverLogStream = NULL;
+  
   loadSettings();
 }
 
@@ -6596,6 +6599,19 @@ void MainWindow::runsolverSlot() {
     logMessage("Solver is already running - returning");
     return;
   }
+  
+  delete solverLogStream;
+  delete solverLogFile;
+  solverLogFile = new QFile(currentProjectDirName + "/ElmerSolver.log");
+  if (solverLogFile->open(QFile::WriteOnly | QFile::Truncate)) {
+    solverLogStream = new QTextStream(solverLogFile);
+  } else {
+    logMessage("Unable to open file for solver logging: " + currentProjectDirName + "/ElmerSolver.log");    
+    delete solverLogFile;
+    solverLogStream = NULL;
+    solverLogFile = NULL;
+    return;
+  }
 
   // Parallel solution:
   //====================
@@ -6901,6 +6917,7 @@ void MainWindow::solverStdoutSlot() {
     return;
 
   solverLogWindow->getTextEdit()->append(qs);
+  if(solverLogStream) (*solverLogStream) << qs;
 
 #ifdef EG_QWT
   if (!showConvergence) {
@@ -6985,6 +7002,7 @@ void MainWindow::solverStderrSlot() {
     qs.chop(1);
 
   solverLogWindow->getTextEdit()->append(qs);
+  if(solverLogStream) (*solverLogStream) << qs;
 }
 
 // solver process emits (int) when ready...
@@ -6996,6 +7014,11 @@ void MainWindow::solverFinishedSlot(int) {
       "ElmerSolver has finished",
       "Use Run->Start ElmerPost, ElmerVTK or Paraview to view results");
   killsolverAct->setEnabled(false);
+
+  delete solverLogStream;
+  delete solverLogFile;
+  solverLogStream = NULL;
+  solverLogFile = NULL;
 }
 
 // solver process emits (QProcess::ProcessError) when error occurs...

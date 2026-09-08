@@ -564,6 +564,9 @@ private:
 
   ObjectBrowser *objectBrowser;
 
+  QFile* solverLogFile;
+  QTextStream* solverLogStream;
+  
 public:  
   /*
   rebuildGLLists() is assumed to be called from ObjectBrowser to avoid a problem of 3D surface 
