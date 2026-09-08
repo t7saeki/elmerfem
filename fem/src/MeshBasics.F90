@@ -1894,19 +1894,6 @@ CONTAINS
        IF(PRESENT(ParOper)) CommI = ParOper
      END IF
      
-     ! The caller may hand us the ParallelInfo of a matrix that was created
-     ! but never passed through ParallelInitMatrix. Both the structure itself
-     ! and GInterface are pointers, so SIZE() below would segfault rather than
-     ! say anything useful about which matrix is at fault.
-     IF(.NOT. ASSOCIATED( ParallelInfo ) ) THEN
-       CALL Fatal('CommunicateParallelSystemTag',&
-           'ParallelInfo not created, call ParallelInitMatrix for the matrix first!')
-     END IF
-     IF(.NOT. ASSOCIATED( ParallelInfo % GInterface ) ) THEN
-       CALL Fatal('CommunicateParallelSystemTag',&
-           'ParallelInfo % GInterface not created, call ParallelInitMatrix for the matrix first!')
-     END IF
-
      nsize = SIZE( ParallelInfo % GInterface)
      IF( PRESENT(Ltag) ) THEN
        nsize = MIN(nsize, SIZE(Ltag) )
@@ -2040,9 +2027,7 @@ CONTAINS
                END IF
              ELSE
                IF( CommI == 0 ) THEN
-                 ! "i" here is the neighbour loop counter, the row to update
-                 ! is the one SearchNode found, i.e. "k".
-                 Itag(k) = Itag(k) + r_i(j)
+                 Itag(i) = Itag(k) + r_i(j)
                ELSE IF( CommI == 1 ) THEN
                  ITag(k) = MIN(r_i(j),Itag(k))
                ELSE IF( CommI == 2 ) THEN
@@ -2346,12 +2331,6 @@ CONTAINS
             'Stabilization Method', Stat )=='vms'
         Stabilize = Stabilize .OR.  ListGetString( Solver % Values, &
             'Stabilization Method', Stat )=='stabilized'
-        ! Elasticity's pressure stabilisation needs mK as well: without one of
-        ! these keywords the ELSE branch below fills only hK, StabilizationMK
-        ! stays zero, and a tau built from it is silently zero -- the scheme
-        ! then does nothing at all rather than failing visibly.
-        Stabilize = Stabilize .OR. &
-            ListGetLogical( Solver % Values, 'Pressure Stabilization', Stat )
       END IF
     END DO
 

@@ -106,7 +106,6 @@ CONTAINS
    END IF
 
    Mesh => AllocateMesh()
-   Mesh % SingleMesh = (.NOT. Parallel) .AND. (ParEnv % PEs > 1)
 
    ! Get sizes of mesh structures for allocation
    !--------------------------------------------------------------------

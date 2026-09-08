@@ -43,9 +43,7 @@
 #if defined(MINGW32) || defined(WIN32) 
 
 #include <sys/types.h>
-#include <time.h>
-#include <windows.h>
-#include <psapi.h>
+#include <time.h> 
 
 double STDCALLBULL FC_FUNC(realtime,REALTIME) ( )
 {
@@ -54,39 +52,12 @@ double STDCALLBULL FC_FUNC(realtime,REALTIME) ( )
 
 double STDCALLBULL FC_FUNC(cputime,CPUTIME) ( )
 {
-  /* User CPU time consumed by this process, summed over all its threads --
-     the analogue of getrusage(RUSAGE_SELF).ru_utime used by the POSIX branch
-     below.
-
-     clock() must not be used here.  On Windows it measures elapsed wall time
-     rather than consumed CPU time, so it returns the same value as realtime()
-     above, and every (CPU,REAL) pair Elmer prints becomes two copies of the
-     same number.  That makes a threaded run indistinguishable from a serial
-     one in the solver's own output. */
-  FILETIME created, exited, kernel, user;
-  ULARGE_INTEGER t;
-
-  if ( !GetProcessTimes( GetCurrentProcess(), &created, &exited, &kernel, &user ) )
-    return 0.0;
-
-  t.LowPart  = user.dwLowDateTime;
-  t.HighPart = user.dwHighDateTime;
-
-  /* FILETIME counts 100-nanosecond intervals. */
-  return (double)t.QuadPart * 1.0e-7;
+  return clock() / (double)CLOCKS_PER_SEC;
 }
 
 double STDCALLBULL  FC_FUNC(cpumemory,CPUMEMORY) ( )
 {
-  /* Peak working set, the analogue of getrusage(RUSAGE_SELF).ru_maxrss.
-     ru_maxrss is reported in kilobytes, so scale to match: the callers of
-     this function compare the two platforms' numbers. */
-  PROCESS_MEMORY_COUNTERS pmc;
-
-  if ( !GetProcessMemoryInfo( GetCurrentProcess(), &pmc, sizeof(pmc) ) )
-    return 0.0;
-
-  return (double)pmc.PeakWorkingSetSize / 1024.0;
+  return 0.0;
 }
 
 #else

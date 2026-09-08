@@ -48,9 +48,6 @@ SUBROUTINE mpi_comm_split(comm, color, key, newcomm, ierr)
   ierr = 0
 END SUBROUTINE mpi_comm_split
 
-SUBROUTINE mpi_scan
-END SUBROUTINE mpi_scan
-
 SUBROUTINE mpi_allreduce
   RETURN
 END SUBROUTINE mpi_allreduce
@@ -130,10 +127,6 @@ END SUBROUTINE mpi_allgatherv
 SUBROUTINE mpi_alltoallv
   RETURN
 END SUBROUTINE mpi_alltoallv
-
-SUBROUTINE mpi_alltoall
-  RETURN
-END SUBROUTINE mpi_alltoall
 
 SUBROUTINE mpi_gatherv
   RETURN

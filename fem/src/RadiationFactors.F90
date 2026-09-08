@@ -650,7 +650,6 @@
      SUBROUTINE ComputeViewFactorsAndRadiators()
 
        CHARACTER(:), ALLOCATABLE :: cmd, OutputName, OutputName2
-       INTEGER :: cmdStatus
        LOGICAL :: DoScale
        INTEGER :: i,j
        REAL(KIND=dp), POINTER :: Wrk(:,:)
@@ -693,13 +692,11 @@
        ! does not try to join the parent's MPI job via inherited PMI/PMIx vars.
        IF (ComputeViewFactors .OR.  .NOT.FirstTime .AND. UpdateViewFactors ) THEN
          IF ( ParEnv % MyPE == 0 ) THEN
-           cmd = SpawnCommand('ViewFactors')//' '//TRIM(GetSifName())
+           cmd = 'ViewFactors '//TRIM(GetSifName())
            CALL Info('ComputeViewFactorsAndRadiators','Using system call: '//TRIM(cmd),Level=15)
            CALL ElmerSetNoMPI( 1 )
-           CALL SystemCommand( cmd, cmdStatus )
+           CALL SystemCommand( cmd )
            CALL ElmerSetNoMPI( 0 )
-           IF ( cmdStatus /= 0 ) CALL Fatal('ComputeViewFactorsAndRadiators', &
-               'View factor computation failed, command was: '//TRIM(cmd))
          END IF
          IF ( ParEnv % PEs > 1 ) CALL MPI_Barrier( ELMER_COMM_WORLD, i )
        END IF
@@ -707,13 +704,11 @@
        IF( RadiatorsFound ) THEN
          IF (ComputeRadiatorFactors .OR. .NOT.FirstTime .AND. UpdateRadiatorFactors ) THEN
            IF ( ParEnv % MyPE == 0 ) THEN
-             cmd = SpawnCommand('Radiators')//' '//TRIM(GetSifName())
+             cmd = 'Radiators '//TRIM(GetSifName())
              CALL Info('ComputeViewFactorsAndRadiators','Using system call: '//TRIM(cmd),Level=15)
              CALL ElmerSetNoMPI( 1 )
-             CALL SystemCommand( cmd, cmdStatus )
+             CALL SystemCommand( cmd )
              CALL ElmerSetNoMPI( 0 )
-             IF ( cmdStatus /= 0 ) CALL Fatal('ComputeViewFactorsAndRadiators', &
-                 'Radiator factor computation failed, command was: '//TRIM(cmd))
            END IF
            IF ( ParEnv % PEs > 1 ) CALL MPI_Barrier( ELMER_COMM_WORLD, i )
          END IF

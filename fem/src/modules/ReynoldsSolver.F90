@@ -70,16 +70,16 @@ SUBROUTINE ReynoldsSolver( Model,Solver,dt,TransientSimulation )
   INTEGER, PARAMETER :: Viscosity_Newtonian = 1, Viscosity_Rarefied = 2
 
   INTEGER :: iter, i, j, k, l, n, nd, t, istat, mat_id, ent_id, body_id, mat_idold, &
-      NoIterations, ViscosityType, CompressibilityType, itime
+      NoIterations, ViscosityType, CompressibilityType
   INTEGER, POINTER :: NodeIndexes(:), PressurePerm(:)
 
   LOGICAL :: GotIt, GotIt2, GotIt3, stat, AllocationsDone = .FALSE., SubroutineVisited = .FALSE., &
       UseVelocity, Bubbles, ApplyLimiter, LinearModel, ManningModel, GotMinGap, &
-      OpenSide,GotExt,GotFlux, GotVelo, AnyBC, GotPseudoPressure, Converged
+      OpenSide,GotExt,GotFlux, GotVelo, AnyBC, GotPseudoPressure, SurfAC, Converged
   REAL(KIND=dp), POINTER :: Pressure(:)
   REAL(KIND=dp) :: Norm, ReferencePressure, HeatRatio, BulkModulus, &
       mfp0, Pres, Dens, ManningCoeff, GravityCoeff, MinGap, MinGradPres, &
-      ACScale, FSIMult
+      ACScale
   REAL(KIND=dp), ALLOCATABLE :: STIFF(:,:), MASS(:,:), FORCE(:), TimeForce(:), &
       Viscosity(:), GapHeight(:), NormalVelocity(:), Velocity(:,:), &
       Admittance(:), Impedance(:), ElemPressure(:), PrevElemPressure(:),  ExtPressure(:), &
@@ -138,8 +138,8 @@ SUBROUTINE ReynoldsSolver( Model,Solver,dt,TransientSimulation )
       ListCheckPresentAnyBC( Model,'Filmpressure Velocity') .OR. &
       ListCheckPresentAnyBC( Model,'Filmpressure Transfer Coefficient')
      
-  MinGap = ListGetCReal( Params,'Min Gap Height',GotMinGap)  
-
+  MinGap = ListGetCReal( Params,'Min Gap Height',GotMinGap)
+  
   MinGradPres = ListGetCReal( Params,'Initial Pressure Gradient',GotIt)
   IF(.NOT. GotIt .OR. AllocationsDone ) THEN
     MinGradPres = EPSILON( MinGradPres )
@@ -147,16 +147,16 @@ SUBROUTINE ReynoldsSolver( Model,Solver,dt,TransientSimulation )
   
   NoIterations = GetInteger( Params,'Nonlinear System Max Iterations',GotIt)
   IF(.NOT. GotIt) NoIterations = 1
-  
-    
+
+
 !------------------------------------------------------------------------------
 ! Allocate some permanent storage, this is done first time only
 !------------------------------------------------------------------------------
 
-  
+
   IF ( .NOT. AllocationsDone  ) THEN
     n = Solver % Mesh % MaxElementNodes
-    
+
     ALLOCATE(ElementNodes % x(n),  &
         ElementNodes % y(n),       &
         ElementNodes % z(n),       &
@@ -193,13 +193,8 @@ SUBROUTINE ReynoldsSolver( Model,Solver,dt,TransientSimulation )
         EXIT
       END IF
     END DO
-
+        
     AllocationsDone = .TRUE.
-    
-    IF(ListGetLogical( Params,'Skip First Solution', GotIt ) ) THEN
-      CALL Info(Caller,'Skipping first solution phase completely!',Level=5)
-      RETURN
-    END IF    
   END IF
 
   IF(GotPseudoPressure) THEN
@@ -208,16 +203,6 @@ SUBROUTINE ReynoldsSolver( Model,Solver,dt,TransientSimulation )
         'Artificial Compressibility Scaling',GotIt)      
     IF(.NOT.GotIt) ACScale = 1.0      
     !IF(Transient) ACScale = ACScale / dt
-  END IF
-
-  FsiMult = ListGetCReal( Params,'Fsi Velocity Multiplier',GotIt )
-  IF(.NOT. GotIt) FsiMult = 1.0_dp
-  itime = GetTimestep()
-  IF(itime == 1) THEN
-    IF( ListGetLogical( Params,'Steady State Fsi Start', GotIt )  ) THEN
-      CALL Info(Caller,'Ignoring FSI velocity for the 1st timestep',Level=7)
-      FsiMult = 0.0_dp
-    END IF
   END IF
   
   
@@ -229,7 +214,7 @@ SUBROUTINE ReynoldsSolver( Model,Solver,dt,TransientSimulation )
 
   CALL Info(Caller,'-------------------------------------------------',Level=5)
 
-200 DO iter = 1,NoIterations
+  DO iter = 1,NoIterations
 
     LinearModel = ( iter == 1 ) .AND. ListGetLogical( Params,'Linear First Iteration',GotIt)
     
@@ -268,12 +253,6 @@ SUBROUTINE ReynoldsSolver( Model,Solver,dt,TransientSimulation )
 
     IF( Solver % Variable % NonlinConverged > 0 ) EXIT
   END DO
-
-  IF(DefaultSensitivity()) THEN
-    NoIterations = 1
-    GOTO 200
-  END IF
-      
   
   IF( ListGetLogical( Params,'Gap Sensitivity', GotIt ) ) THEN       
     CALL Info(Caller,'Computing FilmPressure sentivity to gap height',Level=5)
@@ -325,8 +304,7 @@ CONTAINS
     
     SensMode = 0
     IF( PRESENT(SensitivityMode) ) SensMode = SensitivityMode
-    mat_idold = -1
-    
+
 
     DO t=1,Solver % NumberOfActiveElements
 
@@ -375,10 +353,10 @@ CONTAINS
       Velocity = 0.0_dp
       UseVelocity = .FALSE.
       GotIt = .FALSE.; GotIt2 = .FALSE.; GotIt3 = .FALSE.
-      IF( ListCheckPrefix( BodyForce,'Surface Velocity') ) THEN
-        Velocity(1,1:n) = GetReal(BodyForce,'Surface Velocity 1',GotIt)
-        Velocity(2,1:n) = GetReal(BodyForce,'Surface Velocity 2',GotIt2)
-        Velocity(3,1:n) = GetReal(BodyForce,'Surface Velocity 3',GotIt3)
+      IF( ListCheckPrefix( Equation,'Surface Velocity') ) THEN
+        Velocity(1,1:n) = GetReal(Equation,'Surface Velocity 1',GotIt)
+        Velocity(2,1:n) = GetReal(Equation,'Surface Velocity 2',GotIt2)
+        Velocity(3,1:n) = GetReal(Equation,'Surface Velocity 3',GotIt3)
         UseVelocity = GotIt .OR. GotIt2 .OR. GotIt3
       END IF
       IF(.NOT. UseVelocity) THEN
@@ -391,10 +369,10 @@ CONTAINS
       END IF
 
       IF(.NOT. UseVelocity) THEN
-        IF( ListCheckPrefix( BodyForce,'Tangent Velocity') ) THEN
-          Velocity(1,1:n) = GetReal(BodyForce,'Tangent Velocity 1',GotIt) 
-          Velocity(2,1:n) = GetReal(BodyForce,'Tangent Velocity 2',GotIt2)
-          Velocity(3,1:n) = GetReal(BodyForce,'Tangent Velocity 3',GotIt3)
+        IF( ListCheckPrefix( Equation,'Tangent Velocity') ) THEN
+          Velocity(1,1:n) = GetReal(Equation,'Tangent Velocity 1',GotIt) 
+          Velocity(2,1:n) = GetReal(Equation,'Tangent Velocity 2',GotIt2)
+          Velocity(3,1:n) = GetReal(Equation,'Tangent Velocity 3',GotIt3)
         END IF
         IF(.NOT. (GotIt .OR. GotIt2 .OR. GotIt3)) THEN
           IF( ListCheckPrefix( Material,'Tangent Velocity') ) THEN
@@ -405,14 +383,9 @@ CONTAINS
         END IF
       END IF
         
-      NormalVelocity(1:n) = GetReal(BodyForce,'Normal Velocity',GotIt)
+      NormalVelocity(1:n) = GetReal(Equation,'Normal Velocity',GotIt)
       IF(.NOT. GotIt) NormalVelocity(1:n) = GetReal(Material,'Normal Velocity',GotIt)
 
-      NormalVelocity(1:n) = NormalVelocity(1:n) + &
-          FsiMult * GetReal(BodyForce,'Fsi Velocity',GotIt)
-      IF(.NOT. GotIt) NormalVelocity(1:n) = NormalVelocity(1:n) + &
-          FsiMult * GetReal(Material,'Fsi Velocity',GotIt)
-      
       IF( ManningModel ) THEN
         ElemDensity(1:) = GetReal( Material,'Density')
       END IF
@@ -473,15 +446,19 @@ CONTAINS
             ELSE IF( CompressibilityModel == 'artificial compressible') THEN
               CompressibilityType = Compressibility_Artificial
             ELSE
-              CALL Fatal(Caller,'Unknown compressibility model: '//TRIM(CompressibilityModel))
+              CompressibilityType = Compressibility_None
+              CALL Warn(Caller,'Unknown compressibility model')
             END IF
           END IF
         END IF
       END IF
-      
+
+      SurfAC = .FALSE.
       IF( CompressibilityType == Compressibility_Artificial ) THEN
         ElemArtif(1:n) = GetReal( Material,'Artificial Compressibility',GotIt)
+        IF(.NOT. GotIt) ElemArtif(1:n) = GetReal( Material,'Surface Compressibility',SurfAC)
       END IF
+
       
       STIFF = 0.0_dp
       MASS = 0.0_dp
@@ -702,10 +679,14 @@ CONTAINS
       MA = 0.0_dp
       IF( GotAC ) THEN
         PseudoPres = SUM(Basis(1:n) * ElemPseudoPressure(1:n) )              
-        MA = ( -Density / dt ) * SUM( ElemArtif(1:n) * Basis(1:n) ) 
+        IF( SurfAC ) THEN
+          MA = ( -Density / dt ) * SUM( ElemArtif(1:n) * Basis(1:n) ) 
+        ELSE
+          MA = ( -Density / dt ) * Gap * SUM( ElemArtif(1:n) * Basis(1:n) )
+        END IF        
         MA = ACScale * MA
       END IF
-      
+        
       ! Normal velocity: right-hand-side force vector
       L = Density * NormalVelo
 
@@ -1013,12 +994,6 @@ SUBROUTINE ReynoldsSolver_init( Model,Solver,dt,TransientSimulation )
         TRIM(VarName)//' Gap Sensitivity')
   END IF
 
-  IF( ListGetLogical( Params,'Calculate Sensitivity', Found ) ) THEN
-    CALL ListAddString( Params,NextFreeKeyword('Exported Variable ',Params), &
-        'Filmpressure Sensitivity' )
-    CALL ListAddString(Params,'Sensitivity Variable','Filmpressure Sensitivity')        
-  END IF
-  
 END SUBROUTINE ReynoldsSolver_init
 
 
@@ -1051,7 +1026,7 @@ SUBROUTINE ReynoldsPostprocess( Model,Solver,dt,TransientSimulation )
   TYPE(Variable_t), POINTER :: PressureVar, VarResult, SolverVar, SensVar
   TYPE(Nodes_t) :: ElementNodes
   TYPE(Element_t),POINTER :: Element
-  TYPE(ValueList_t), POINTER :: Params, Material, Equation, BodyForce
+  TYPE(ValueList_t), POINTER :: Params, Material, Equation
 
   INTEGER, PARAMETER :: Viscosity_Newtonian = 1, Viscosity_Rarefied = 2
 
@@ -1247,13 +1222,6 @@ SUBROUTINE ReynoldsPostprocess( Model,Solver,dt,TransientSimulation )
         mat_id = GetInteger( Model % Bodies( body_id ) % Values, 'Material')
         Material => Model % Materials(mat_id) % Values
 
-        ent_id = GetInteger( Model % Bodies( ent_id ) % Values, 'Body Force',GotIt)
-        IF(ent_id>0) THEN
-          BodyForce => Model % BodyForces(ent_id) % Values
-        ELSE
-          BodyForce => NULL()
-        END IF
-        
         !------------------------------------------------------------------------------
         !       Get velocities
         !------------------------------------------------------------------------------                
@@ -1261,10 +1229,10 @@ SUBROUTINE ReynoldsPostprocess( Model,Solver,dt,TransientSimulation )
         UseVelocity = .FALSE.
         GotIt = .FALSE.; GotIt2 = .FALSE.; GotIt3 = .FALSE.
 
-        IF( ListCheckPrefix( BodyForce,'Surface Velocity') ) THEN
-          Velocity(1,1:n) = GetReal(BodyForce,'Surface Velocity 1',GotIt)
-          Velocity(2,1:n) = GetReal(BodyForce,'Surface Velocity 2',GotIt2)
-          Velocity(3,1:n) = GetReal(BodyForce,'Surface Velocity 3',GotIt3)
+        IF( ListCheckPrefix( Equation,'Surface Velocity') ) THEN
+          Velocity(1,1:n) = GetReal(Equation,'Surface Velocity 1',GotIt)
+          Velocity(2,1:n) = GetReal(Equation,'Surface Velocity 2',GotIt2)
+          Velocity(3,1:n) = GetReal(Equation,'Surface Velocity 3',GotIt3)
           UseVelocity = GotIt .OR. GotIt2 .OR. GotIt3
         END IF
         IF(.NOT. UseVelocity) THEN
@@ -1277,10 +1245,10 @@ SUBROUTINE ReynoldsPostprocess( Model,Solver,dt,TransientSimulation )
         END IF
         
         IF(.NOT. UseVelocity) THEN
-          IF( ListCheckPrefix( BodyForce,'Tangent Velocity') ) THEN
-            Velocity(1,1:n) = GetReal(BodyForce,'Tangent Velocity 1',GotIt) 
-            Velocity(2,1:n) = GetReal(BodyForce,'Tangent Velocity 2',GotIt2)
-            Velocity(3,1:n) = GetReal(BodyForce,'Tangent Velocity 3',GotIt3)
+          IF( ListCheckPrefix( Equation,'Tangent Velocity') ) THEN
+            Velocity(1,1:n) = GetReal(Equation,'Tangent Velocity 1',GotIt) 
+            Velocity(2,1:n) = GetReal(Equation,'Tangent Velocity 2',GotIt2)
+            Velocity(3,1:n) = GetReal(Equation,'Tangent Velocity 3',GotIt3)
           END IF
           IF(.NOT. (GotIt .OR. GotIt2 .OR. GotIt3 )) THEN
             IF( ListCheckPrefix( Material,'Tangent Velocity') ) THEN            
@@ -1312,7 +1280,7 @@ SUBROUTINE ReynoldsPostprocess( Model,Solver,dt,TransientSimulation )
               ViscosityType = Viscosity_Rarefied
               mfp0 = GetCReal(Material,'Mean Free Path')            
             ELSE
-              CALL Fatal(Caller,'Unknown viscosity model: '//TRIM(ViscosityModel))
+              CALL Warn(Caller,'Unknown viscosity model')
             END IF
           ELSE
             ViscosityType = Viscosity_Newtonian          

@@ -66,8 +66,7 @@ MODULE MainUtils
       CalculateNodalWeights, CheckStepSize, ComputeChange, &
       ComputeNorm, CreateIpPerm, ScaleLinearSystem, BackScaleLinearSystem, &
       InitializeTimestep, InitializeToZero, InvalidateVariable, &
-      AuditIntegrationRules, MatrixVectorMultiply, UpdateDependentObjects, &
-      UpdateExportedVariables
+      MatrixVectorMultiply, UpdateDependentObjects, UpdateExportedVariables
   USE SolveCore, ONLY : FinalizeLumpedMatrix
   USE BoundaryConditionUtils, ONLY : GetPassiveBoundary
   USE ProjectorUtils, ONLY : GenerateProjectors
@@ -119,7 +118,7 @@ CONTAINS
 #if !defined (HAVE_UMFPACK) && defined (HAVE_MUMPS)
         IF ( str == 'umfpack' .OR. str == 'big umfpack' ) THEN
           CALL Warn( 'CheckLinearSolverOptions', 'UMFPACK solver not installed, using MUMPS instead!' )
-          str = 'mumpslocal'
+          str = 'mumps'
           CALL ListAddString( Params,'Linear System Direct Method', str)
         END IF
 #endif
@@ -160,10 +159,8 @@ CONTAINS
         
       ELSE
         IF ( .NOT. Parallel ) THEN
-#if defined(HAVE_UMFPACK)
+#ifdef HAVE_UMFPACK
           str = 'umfpack'
-#elif defined(HAVE_MUMPS)
-          str = 'mumpslocal'
 #else
           str = 'banded'
 #endif
@@ -1033,42 +1030,34 @@ CONTAINS
      CHARACTER(*), PARAMETER :: Caller="PrintProblemSize"
 
      Matrix => Solver % Matrix
-     IF(ASSOCIATED(Matrix) ) THEN
-       nx = Matrix % NumberOfRows
-       nz = SIZE(Matrix % Values)
-     ELSE
-       nx = 0
-       nz = 0
-     END IF
-       
-     Parallel = ( ParEnv % PEs > 1 ) .AND. ( .NOT. Solver % Mesh % SingleMesh )
-       
-     IF(Parallel) THEN
-       i = ParallelReduction( nx )
-     ELSE
-       i = nx
-     END IF
+     IF(.NOT. ASSOCIATED(Matrix)) RETURN
+     
+     nx = Matrix % NumberOfRows
+     nz = SIZE(Matrix % Values)
 
+
+     Parallel = ParEnv % PEs > 1 .AND. .NOT. Solver % Mesh % SingleMesh 
+       
+     ! Is there any size info to print?
+     i = ParallelReduction( nx )
      IF(i==0) THEN
        CONTINUE
 
      ELSE IF( Parallel ) THEN
        no = 0; ns = 0
 
-       IF(nx>0) THEN
-         HaveParInfo = ASSOCIATED(Matrix % ParallelInfo)
-         IF(HaveParInfo) THEN
-           HaveParInfo = ASSOCIATED(Matrix % ParallelInfo % NeighbourList)
-         END IF
-
-         IF(HaveParInfo) THEN
-           DO i=1,nx
-             IF( Matrix % ParallelInfo % NeighbourList(i) % Neighbours(1) == ParEnv % MyPe) no=no+1
-             IF( SIZE(Matrix % ParallelInfo % NeighbourList(i) % Neighbours) > 1) ns=ns+1
-           END DO
-         END IF
+       IF( Parallel ) HaveParInfo = ASSOCIATED(Matrix % ParallelInfo)
+       IF(HaveParInfo) THEN
+         HaveParInfo = ASSOCIATED(Matrix % ParallelInfo % NeighbourList)
        END IF
-         
+
+       IF(HaveParInfo) THEN
+         DO i=1,nx
+           IF( Matrix % ParallelInfo % NeighbourList(i) % Neighbours(1) == ParEnv % MyPe) no=no+1
+           IF( SIZE(Matrix % ParallelInfo % NeighbourList(i) % Neighbours) > 1) ns=ns+1
+         END DO
+       END IF
+
        DO i=0,2
          nxpar(i) = ParallelReduction(nx,i)
          nzpar(i) = ParallelReduction(nz,i)
@@ -2824,9 +2813,11 @@ CONTAINS
      END IF
 
 
-     IF( ListGetLogical( CurrentModel % Simulation,'Size Info',Found)  ) THEN
-       CALL PrintProblemSize( Solver )
+     DoIt = ASSOCIATED( Solver % Matrix ) 
+     IF(DoIt) THEN
+       DoIt = InfoActive(20) .OR. ListGetLogical( CurrentModel % Simulation,'Size Info',Found)
      END IF
+     IF(DoIt) CALL PrintProblemSize( Solver )
          
 !------------------------------------------------------------------------------
    END SUBROUTINE AddEquationSolution
@@ -5268,12 +5259,6 @@ CONTAINS
 
          CALL SetActiveElementsTable( Model, Solver, MaxDim  ) 
          CALL ListAddInteger( Solver % Values, 'Active Mesh Dimension', Maxdim )
-
-         ! Report the integration rule in force, per element family, and flag a
-         ! solver paying for a basis it does not carry. Costs nothing and
-         ! assembles nothing; here because the active element table has just been
-         ! built, and this branch runs once per mesh rather than per timestep.
-         CALL AuditIntegrationRules( Solver )
          
          ! Calculate accumulated integration weights for bulk if requested          
          DoBulk = ListGetLogical( Solver % Values,'Calculate Weights',Found )

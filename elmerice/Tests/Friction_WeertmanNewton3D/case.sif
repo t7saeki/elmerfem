@@ -37,7 +37,7 @@ Simulation
   Steady State Max Iterations = 1
 
 !  Post File = "case.vtu"
-  Max Output Level = 5
+  max output level = 3
 End
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -83,9 +83,6 @@ End
 Solver 2
   Equation = "Stokes-Vec"
   Procedure = "IncompressibleNSVec" "IncompressibleNSSolver"
-  Solver Timing = Logical True
-  Bulk Assembly Timing = Logical True
-  Linear System Timing = Logical True
 
   Stokes Flow = logical true
 
